@@ -1,0 +1,7 @@
+m0-kit version: v6-directoryindex-fix
+built: 2026-10-24 00:22 WIB
+fix vs v5: DirectoryIndex index.php was missing - Apache served
+"Index of /app-php82" directory listings instead of executing index.php.
+Added DirectoryIndex to conf-m0-projects.conf + setup-m0.sh patch.
+scripts: setup-m0.sh, verify-m0.sh, diagnose-m0.sh - no ps1 files.
+Extract to a NEW empty folder, never over an old kit folder.

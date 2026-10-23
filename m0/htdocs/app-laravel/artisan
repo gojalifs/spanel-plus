@@ -1,0 +1,25 @@
+<?php
+// M0 dummy artisan - NOT real Laravel. Proves K4: a CLI process runs with
+// whichever php.exe invokes it (the panel supervisor will always invoke
+// the php.exe of the project's registered PHP version).
+if (php_sapi_name() !== 'cli') {
+    http_response_code(403);
+    exit('artisan is CLI only');
+}
+$cmd = $argv[1] ?? '';
+if ($cmd === 'queue:work') {
+    $line = sprintf(
+        "[%s] queue dummy processed php=%s project=app-laravel\n",
+        date('Y-m-d H:i:s'),
+        PHP_VERSION
+    );
+    echo $line;
+    $logDir = __DIR__ . '/storage/logs';
+    if (!is_dir($logDir)) {
+        mkdir($logDir, 0777, true);
+    }
+    file_put_contents($logDir . '/queue-dummy.log', $line, FILE_APPEND);
+    exit(0);
+}
+echo "M0 dummy artisan. Usage: php artisan queue:work --once\n";
+echo 'php=' . PHP_VERSION . "\n";
