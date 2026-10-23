@@ -268,6 +268,7 @@ Automated testing adalah bagian resmi Fase 1, bukan pelengkap. Go mendukung ini 
 
 - 2026-10-23 — Plan dibuat & Fase 1 dikunci (D1–D10) dari rangkaian diskusi 22–23 Okt 2026.
 - 2026-10-23 22:28 WIB — Atas permintaan max, automated testing dijadikan requirement resmi: Bagian 10 ditulis ulang (aturan testability, unit/integration/smoke/pilot, pipeline CI GitHub Actions, batas yang tidak bisa diautomatisasi), kriteria penyelesaian milestone & Definisi Selesai diperketat mengikuti.
+- 2026-10-24 00:37 WIB — max menyatakan "go sudah terkunci" dan memerintahkan eksekusi M1. M1 dibangun hari yang sama: skeleton Go satu binary (console + Windows Service via `golang.org/x/sys`, start otomatis saat boot), UI ter-embed di port 8888, `doctor` awal (path Apache + auto-discovery, `httpd -v`, mod_fcgid, port panel, data dir), logging terstruktur JSON; aturan testability 10.1 diterapkan (semua side-effect di balik interface port di `internal/core`). Unit test lulus di VM Linux Muse + cross-compile `panel.exe` (PE32+ x64) terverifikasi; kriteria service M1 dinyatakan lulus hanya setelah smoke test di mesin Windows per `docs/m1-smoke-test.md` (Bagian 10.4). Skrip lokal pengujian berbentuk bash (`scripts/test.sh`, Git Bash) menggantikan rujukan `test.ps1` di 10.3 — mengikuti keputusan max di M0 untuk memakai bash, bukan PowerShell.
 
 ## Lampiran — Peta Fase 2 (belum direncanakan, hanya penunjuk arah)
 

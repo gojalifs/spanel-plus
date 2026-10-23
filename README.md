@@ -13,15 +13,20 @@ testing): [`docs/plan-fase-1.md`](docs/plan-fase-1.md)
 
 ## Status
 
-**Fase 1 — M0 (spike validasi go/no-go) sedang berjalan.**
+**Fase 1 — M0 GO (terkunci oleh max, 2026-10-24). M1 skeleton Go selesai
+dibangun, menunggu smoke test service di mesin Windows.**
 
-- Setup otomatis bash (`m0/scripts/setup-m0.sh`, Git Bash/WSL) teruji mengunduh &
-  memasang Apache 2.4.69 VS18 + mod_fcgid 2.3.10 + PHP 8.2.35 & 8.3.36 NTS x64.
-- Terdiagnosis di mesin uji: port 80 awalnya diduduki Microsoft IIS (sudah dibebaskan),
-  lalu `DirectoryIndex index.php` yang hilang (sudah diperbaiki di kit v6).
-- Menunggu hasil `verify-m0.sh` final: kriteria K1–K5 (dua versi PHP dari satu Apache,
-  Laravel dummy tanpa `/public`, `.env` 404, queue dummy, mod_fcgid tercatat).
-  M1 (skeleton Go) tidak dimulai sebelum K1–K5 semua PASS.
+- M0 membuktikan desain di mesin uji: satu Apache 2.4.69 VS18 +
+  `mod_fcgid` 2.3.10 + PHP 8.2.35 & 8.3.36 NTS x64 melayani beberapa
+  versi PHP dari satu port; penyebab kegagalan awal terdiagnosis tuntas
+  (port 80 diduduki IIS, lalu `DirectoryIndex index.php` yang hilang —
+  keduanya sudah diperbaiki di kit).
+- M1 (repo Go): satu binary `panel` yang bisa jalan sebagai console &
+  Windows Service, UI skeleton ter-embed di port panel (default 8888),
+  subcommand `doctor` versi awal, logging terstruktur (JSON) ke
+  `logs/panel.log`. Unit test lulus & cross-compile Windows terverifikasi
+  di VM Muse; kriteria service M1 dibuktikan lewat
+  [`docs/m1-smoke-test.md`](docs/m1-smoke-test.md) di mesin Windows.
 
 ## Menjalankan M0
 
@@ -36,3 +41,52 @@ bash diagnose-m0.sh       # bila ada FAIL: output diagnosa lengkap
 ```
 
 Detail: [`m0/README-M0.md`](m0/README-M0.md)
+
+## M1 — Skeleton Go
+
+Prasyarat: Go **1.24+** (satu-satunya dependensi pihak ketiga:
+`golang.org/x/sys` untuk Windows Service).
+
+```bash
+# build (Git Bash di Windows menghasilkan panel.exe)
+go build -o panel.exe ./cmd/panel
+
+# perintah
+panel.exe version
+panel.exe doctor              # cek path Apache, httpd -v, mod_fcgid, port, data dir
+panel.exe serve               # console; bila dimulai SCM, jalan sebagai Windows Service
+panel.exe service install     # Administrator: daftar service, start otomatis saat boot
+panel.exe service start|stop|status|uninstall
+```
+
+- UI/API: `http://127.0.0.1:8888` — `GET /` (UI ter-embed),
+  `GET /healthz`, `GET /api/v1/status`, `GET /api/v1/doctor`.
+- Konfigurasi opsional: `panel.json` di sebelah binary (lihat
+  `panel.example.json`); `apache_home` kosong = auto-discovery
+  (`C:\xampp\apache`, `C:\Apache24`, `C:\m0\Apache24`).
+- Semua file panel (`data/`, `logs/`) di folder binary — tidak ada
+  yang ditulis ke folder proyek (Plan D9).
+
+Struktur paket (SOLID, Plan 10.1 — core tidak tahu HTTP/CLI/SCM):
+
+```
+cmd/panel/          entrypoint: wiring dependensi saja
+internal/core/      logika inti + interface port (CommandRunner, FileProbe, PortProbe, Clock, ServiceController) + doctor
+internal/app/       komposisi aplikasi & lifecycle serve
+internal/httpapi/   handler HTTP tipis + web UI ter-embed
+internal/cli/       dispatcher subcommand tipis
+internal/platform/  implementasi OS: exec, probe filesystem/port, Windows Service (x/sys)
+internal/config/    panel.json (default, validasi, error keras bila file rusak)
+internal/logging/   slog terstruktur ke file (+ console di mode console)
+```
+
+Test & CI:
+
+```bash
+bash scripts/test.sh   # gofmt check -> go vet -> go test ./... -> build (+ cross-compile Windows bila bukan Windows)
+```
+
+CI GitHub Actions (`.github/workflows/ci.yml`) menjalankan tahap yang
+sama di `windows-latest` + `ubuntu-latest` tiap push/PR, sesuai Plan
+Bagian 10.3. Cakupan unit test saat M1: core/doctor 95%, httpapi 91%,
+config 86%, logging 82%, cli 76%.

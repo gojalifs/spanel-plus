@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Name}} — Admin Panel</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>{{.Name}}</h1>
+  <span class="badge">M1 skeleton · v{{.Version}}</span>
+</header>
+<main>
+  <section class="card">
+    <h2>Status panel</h2>
+    <p id="status-line">Memuat dari <code>/api/v1/status</code>…</p>
+    <dl id="status-detail"></dl>
+  </section>
+  <section class="card">
+    <h2>Doctor</h2>
+    <p>Hasil pemeriksaan lingkungan dari <code>/api/v1/doctor</code>:</p>
+    <ul id="doctor-list"><li>Memuat…</li></ul>
+  </section>
+  <section class="card muted">
+    <h2>Berikutnya</h2>
+    <p>Dashboard proyek, PHP manager, dan supervisor proses tiba di
+    milestone M2–M4. Skeleton M1 membuktikan: satu binary Go, Windows
+    Service native, UI ter-embed di port {{.Port}}, dan doctor awal.</p>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

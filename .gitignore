@@ -1,0 +1,9 @@
+# Build output
+/dist/
+panel.exe
+panel
+
+# Panel runtime files when run from the repo root
+/data/
+/logs/
+panel.json
