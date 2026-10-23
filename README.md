@@ -86,7 +86,11 @@ Test & CI:
 bash scripts/test.sh   # gofmt check -> go vet -> go test ./... -> build (+ cross-compile Windows bila bukan Windows)
 ```
 
-CI GitHub Actions (`.github/workflows/ci.yml`) menjalankan tahap yang
-sama di `windows-latest` + `ubuntu-latest` tiap push/PR, sesuai Plan
-Bagian 10.3. Cakupan unit test saat M1: core/doctor 95%, httpapi 91%,
-config 86%, logging 82%, cli 76%.
+CI GitHub Actions menjalankan tahap yang sama di `windows-latest` +
+`ubuntu-latest` tiap push/PR, sesuai Plan Bagian 10.3 — file
+workflow-nya (`.github/workflows/ci.yml`) **belum masuk repo**: push
+pertama ditolak GitHub (`403 Resource not accessible by integration`)
+karena instalasi GitHub App Muse belum punya izin *Workflows*.
+File-nya siap di staging Muse; masuk repo begitu izin itu diberikan
+(atau di-commit manual dari mesin Windows). Cakupan unit test saat
+M1: core/doctor 95%, httpapi 91%, config 86%, logging 82%, cli 76%.
