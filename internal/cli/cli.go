@@ -86,9 +86,11 @@ Commands:
   service start         Start Windows Service panel [Administrator]
   service stop          Stop Windows Service panel [Administrator]
   service status        Tampilkan status Windows Service panel
-  login                 Login admin ke panel yang sedang jalan (sesi 12 jam, tersimpan lokal)
+  login                 Login ke panel yang sedang jalan (sesi 10 menit idle, tersimpan lokal)
+  login --ad            Login AD (username AD + password; butuh ad_enabled di panel.json)
   logout                Logout (hapus sesi lokal)
   admin set-password    Buat/ganti password admin — perintah lokal, pertama kali sebelum login
+  admin hash-password   Cetak hash bcrypt untuk ditempel ke ad_dummy_users di panel.json
   project list          Daftar proyek di registry
   project add --name N --url /path --path C:\folder --type laravel|php-native|static --php 8.2 [--public public] [--disabled]
   project update N [flags seperti add]   Ubah proyek (flag yang tidak disebut memakai nilai lama)
@@ -146,7 +148,7 @@ func (c *CLI) Run(args []string) int {
 	case "serve":
 		return c.runServe()
 	case "login":
-		return c.runLogin()
+		return c.runLogin(args[1:])
 	case "logout":
 		return c.runLogout()
 	case "admin":
@@ -763,10 +765,48 @@ func (c *CLI) readPasswordLine(prompt string) (string, error) {
 	return strings.TrimRight(string(line), "\r"), nil
 }
 
-func (c *CLI) runLogin() int {
+func (c *CLI) runLogin(args []string) int {
+	ad := false
+	username := ""
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--ad":
+			ad = true
+		case "--username":
+			if i+1 >= len(args) {
+				fmt.Fprintln(c.deps.ErrOut, "usage: panel login [--ad] [--username <user>]")
+				return 2
+			}
+			i++
+			username = args[i]
+		default:
+			fmt.Fprintln(c.deps.ErrOut, "usage: panel login [--ad] [--username <user>]")
+			return 2
+		}
+	}
 	client, code := c.apiClient()
 	if code != 0 {
 		return code
+	}
+	if ad {
+		if username == "" {
+			line, err := c.readPasswordLine("Username AD: ")
+			if err != nil {
+				fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+				return 1
+			}
+			username = line
+		}
+		password, err := c.readPasswordLine("Password AD: ")
+		if err != nil {
+			fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+			return 1
+		}
+		if err := client.LoginAD(username, password); err != nil {
+			return c.apiErr(err)
+		}
+		fmt.Fprintln(c.deps.Out, "Login AD berhasil — sesi tersimpan lokal (10 menit idle).")
+		return 0
 	}
 	password, err := c.readPasswordLine("Password admin: ")
 	if err != nil {
@@ -776,7 +816,7 @@ func (c *CLI) runLogin() int {
 	if err := client.Login(password); err != nil {
 		return c.apiErr(err)
 	}
-	fmt.Fprintln(c.deps.Out, "Login berhasil — sesi tersimpan lokal (12 jam).")
+	fmt.Fprintln(c.deps.Out, "Login berhasil — sesi tersimpan lokal (10 menit idle).")
 	return 0
 }
 
@@ -793,8 +833,25 @@ func (c *CLI) runLogout() int {
 }
 
 func (c *CLI) runAdmin(args []string) int {
+	if len(args) == 1 && args[0] == "hash-password" {
+		// Prints a bcrypt hash for pasting into ad_dummy_users.
+		// The hash is not a credential: it is exactly what belongs
+		// in config, and the password itself is never stored.
+		password, err := c.readPasswordLine("Password untuk di-hash: ")
+		if err != nil {
+			fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+			return 1
+		}
+		hash, err := core.HashPassword(password)
+		if err != nil {
+			fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(c.deps.Out, hash)
+		return 0
+	}
 	if len(args) != 1 || args[0] != "set-password" {
-		fmt.Fprintln(c.deps.ErrOut, "usage: panel admin set-password")
+		fmt.Fprintln(c.deps.ErrOut, "usage: panel admin set-password | panel admin hash-password")
 		return 2
 	}
 	cfg, code := c.loadConfig()

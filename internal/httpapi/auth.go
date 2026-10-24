@@ -11,18 +11,22 @@ import (
 	"github.com/gojalifs/spanel-plus/internal/core"
 )
 
-// M5 auth gate + audit (Plan F6). The cookie is HttpOnly and
-// SameSite=Lax; it is deliberately NOT Secure because the panel is
-// served over plain HTTP on the company LAN (Plan F6 recommends
-// firewalling the panel port to the LAN, not TLS on it). A login
-// over any other network is out of the panel's threat model — and
-// the plan says so, rather than pretending otherwise.
+// M5 auth gate + audit (Plan F6), extended by M5-AD with the
+// directory login method. The cookie is HttpOnly and SameSite=Lax;
+// it is deliberately NOT Secure because the panel is served over
+// plain HTTP on the company LAN (Plan F6 recommends firewalling the
+// panel port to the LAN, not TLS on it). A login over any other
+// network is out of the panel's threat model — and the plan says
+// so, rather than pretending otherwise.
 
 // authMiddleware requires a valid session cookie for every API call
 // except the auth endpoints themselves. The UI shell (GET /) and
 // static assets stay public so the login form can load; they carry
 // no data. When no auth service is attached (tests, degraded mode)
 // the gate is open — production wiring always attaches one.
+// Validation slides the session's idle deadline (M5-AD: 10 minutes
+// from the last request), and the cookie is re-issued with the same
+// MaxAge so browser and server agree on when it ends.
 func authMiddleware(application *app.Application, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := application.Auth()
@@ -38,14 +42,27 @@ func authMiddleware(application *app.Application, next http.Handler) http.Handle
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !auth.ValidateSession(sessionToken(r)) {
+		token := sessionToken(r)
+		if _, ok := auth.ValidateSession(token); !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{
 				"error":         "belum login — buka panel dan login sebagai admin, atau jalankan: panel login",
 				"auth_required": true,
 			})
 			return
 		}
+		refreshSessionCookie(w, token)
 		next.ServeHTTP(w, r)
+	})
+}
+
+func refreshSessionCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     core.SessionCookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(core.SessionIdleTimeout / time.Second),
 	})
 }
 
@@ -79,7 +96,8 @@ func (w *statusWriter) WriteHeader(code int) {
 // who, when, what). Reads are not logged. Login/logout are logged
 // by their own handlers, with their outcome, so they are excluded
 // here. A failed append is logged to the panel log but never fails
-// the request it records.
+// the request it records. The actor is the session's identity
+// (local:admin or ad:<username>), never a fixed string.
 func auditMiddleware(application *app.Application, logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet || !strings.HasPrefix(r.URL.Path, "/api/v1/") ||
@@ -90,8 +108,10 @@ func auditMiddleware(application *app.Application, logger *slog.Logger, next htt
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
 		actor := "anonymous"
-		if application.Auth() == nil || application.Auth().ValidateSession(sessionToken(r)) {
-			actor = "admin"
+		if auth := application.Auth(); auth == nil {
+			actor = "anonymous"
+		} else if a, ok := auth.ValidateSession(sessionToken(r)); ok {
+			actor = a
 		}
 		err := application.Audit().Append(core.AuditEntry{
 			Actor:  actor,
@@ -105,18 +125,24 @@ func auditMiddleware(application *app.Application, logger *slog.Logger, next htt
 }
 
 type loginRequest struct {
+	Method   string `json:"method"`   // "local" (default) or "ad"
+	Username string `json:"username"` // AD method only
 	Password string `json:"password"`
 }
 
 func (a *api) authStatus(w http.ResponseWriter, r *http.Request) {
 	auth := a.application.Auth()
 	if auth == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"configured": false, "authenticated": false})
+		writeJSON(w, http.StatusOK, map[string]any{"configured": false, "authenticated": false, "ad_enabled": false})
 		return
 	}
+	_, adCfg, _ := a.application.AD()
+	actor, authenticated := auth.ValidateSession(sessionToken(r))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"configured":    auth.Configured(),
-		"authenticated": auth.ValidateSession(sessionToken(r)),
+		"authenticated": authenticated,
+		"ad_enabled":    adCfg.Enabled,
+		"actor":         actor,
 	})
 }
 
@@ -130,7 +156,22 @@ func (a *api) authLogin(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	token, err := auth.Authenticate(req.Password)
+	method := req.Method
+	if method == "" {
+		method = "local"
+	}
+	switch method {
+	case "local":
+		a.localLogin(w, r, auth, req.Password)
+	case "ad":
+		a.adLogin(w, r, auth, req.Username, req.Password)
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "metode login tidak dikenal — pakai 'local' atau 'ad'"})
+	}
+}
+
+func (a *api) localLogin(w http.ResponseWriter, r *http.Request, auth *core.AuthService, password string) {
+	token, err := auth.Authenticate(password)
 	if err != nil {
 		_ = a.application.Audit().Append(core.AuditEntry{Actor: "anonymous", Action: "POST /api/v1/auth/login", Detail: "failed"})
 		switch {
@@ -143,20 +184,54 @@ func (a *api) authLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     core.SessionCookieName,
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int((12 * time.Hour) / time.Second),
-	})
-	_ = a.application.Audit().Append(core.AuditEntry{Actor: "admin", Action: "POST /api/v1/auth/login", Detail: "ok"})
-	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true})
+	refreshSessionCookie(w, token)
+	_ = a.application.Audit().Append(core.AuditEntry{Actor: core.LocalActor, Action: "POST /api/v1/auth/login", Detail: "ok"})
+	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "actor": core.LocalActor})
+}
+
+func (a *api) adLogin(w http.ResponseWriter, r *http.Request, auth *core.AuthService, username, password string) {
+	directory, adCfg, adErr := a.application.AD()
+	if !adCfg.Enabled || directory == nil {
+		_ = a.application.Audit().Append(core.AuditEntry{Actor: "anonymous", Action: "POST /api/v1/auth/login", Detail: "failed (ad disabled)"})
+		msg := "login AD belum diaktifkan — aktifkan lewat panel.json (ad_enabled)"
+		if adErr != nil {
+			msg = "login AD belum bisa dipakai: " + adErr.Error()
+		}
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": msg})
+		return
+	}
+	ok, err := directory.Authenticate(r.Context(), username, password)
+	if err != nil {
+		// Directory trouble is answered generically too: the login
+		// form must not leak whether the DC is down or the account
+		// is wrong. The detail goes to the panel log only.
+		slog.Warn("ad login error", "err", err)
+		_ = a.application.Audit().Append(core.AuditEntry{Actor: "anonymous", Action: "POST /api/v1/auth/login", Detail: "failed (ad)"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "username/password salah atau bukan anggota grup IT"})
+		return
+	}
+	if !ok {
+		_ = a.application.Audit().Append(core.AuditEntry{Actor: "anonymous", Action: "POST /api/v1/auth/login", Detail: "failed (ad)"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "username/password salah atau bukan anggota grup IT"})
+		return
+	}
+	actor := "ad:" + username
+	token, err := auth.CreateSession(actor)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "gagal membuat sesi"})
+		return
+	}
+	refreshSessionCookie(w, token)
+	_ = a.application.Audit().Append(core.AuditEntry{Actor: actor, Action: "POST /api/v1/auth/login", Detail: "ok"})
+	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "actor": actor})
 }
 
 func (a *api) authLogout(w http.ResponseWriter, r *http.Request) {
+	actor := "anonymous"
 	if auth := a.application.Auth(); auth != nil {
+		if act, ok := auth.ValidateSession(sessionToken(r)); ok {
+			actor = act
+		}
 		auth.Logout(sessionToken(r))
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -167,6 +242,6 @@ func (a *api) authLogout(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
-	_ = a.application.Audit().Append(core.AuditEntry{Actor: "admin", Action: "POST /api/v1/auth/logout", Detail: "ok"})
+	_ = a.application.Audit().Append(core.AuditEntry{Actor: actor, Action: "POST /api/v1/auth/logout", Detail: "ok"})
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 }

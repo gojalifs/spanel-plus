@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/gojalifs/spanel-plus/internal/core"
 )
 
 // FileName is the optional config file, looked up next to the binary.
@@ -41,6 +43,32 @@ type Config struct {
 	// (then every project gets an Alias — always correct, just less
 	// minimal).
 	DocumentRoot string `json:"document_root"`
+	// ADEnabled turns on directory login (M5-AD). The whole AD
+	// configuration lives here, in this one JSON file — no service
+	// account, no separate file, no Group Policy.
+	ADEnabled bool `json:"ad_enabled"`
+	// ADServer is the directory endpoint: ldaps://<dc-fqdn>:636,
+	// ldap://<dc-fqdn> (StartTLS is then required), or "dummy" for
+	// the development directory (never production).
+	ADServer string `json:"ad_server"`
+	// ADDomain is the UPN suffix, e.g. siws.local.
+	ADDomain string `json:"ad_domain"`
+	// ADBaseDN is the search base, e.g. DC=siws,DC=local.
+	ADBaseDN string `json:"ad_base_dn"`
+	// ADGroupDN is the IT group DN, e.g. CN=IS,DC=siws,DC=local.
+	// Until the real DN is confirmed, a placeholder here fails
+	// closed (nobody passes the group check) rather than open.
+	ADGroupDN string `json:"ad_group_dn"`
+	// ADCAFile is an optional PEM file for a DC certificate issued
+	// by an internal CA; empty means system roots.
+	ADCAFile string `json:"ad_ca_file"`
+	// ADAllowInsecureLDAP permits plain LDAP without TLS. Test-only:
+	// the panel logs a loud warning on every start while it is set.
+	ADAllowInsecureLDAP bool `json:"ad_allow_insecure_ldap"`
+	// ADDummyUsers is the development directory (only read when
+	// ADServer is "dummy"): username + bcrypt password_hash +
+	// group CNs. Generate hashes with: panel admin hash-password.
+	ADDummyUsers []core.DummyUser `json:"ad_dummy_users,omitempty"`
 }
 
 // DefaultApacheCandidates are probed, in order, when ApacheHome is empty.

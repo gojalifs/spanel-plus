@@ -30,9 +30,16 @@ import (
 const (
 	// SessionCookieName is the session cookie the API and CLI share.
 	SessionCookieName = "spanel_session"
-	// SessionTTL is how long one login stays valid (fixed, not
-	// sliding: a stolen token stops working on its own).
-	SessionTTL = 12 * time.Hour
+	// SessionIdleTimeout is how long a session survives without a
+	// request (M5-AD, replacing M5's fixed 12h TTL): every
+	// authenticated request slides the deadline forward by this
+	// much, so active use never logs out mid-click, while an idle
+	// session dies on its own. There is deliberately no absolute
+	// session age in M5-AD.
+	SessionIdleTimeout = 10 * time.Minute
+	// LocalActor is the audit identity of the local break-glass
+	// account; AD sessions use "ad:<username>" instead (see ad.go).
+	LocalActor = "local:admin"
 	// MinAdminPasswordLength keeps the single admin account from
 	// being protected by a trivial password.
 	MinAdminPasswordLength = 8
@@ -54,6 +61,7 @@ type adminAccount struct {
 }
 
 type session struct {
+	actor     string // audit identity: LocalActor or "ad:<username>"
 	expiresAt time.Time
 }
 
@@ -119,9 +127,9 @@ func (a *AuthService) SetPassword(password string) error {
 	return nil
 }
 
-// Authenticate checks the password and, on success, mints a session
-// token. The returned token is the only value the cookie ever
-// carries; the service stores only its hash.
+// Authenticate checks the local admin password and, on success,
+// mints a session token. The returned token is the only value the
+// cookie ever carries; the service stores only its hash.
 func (a *AuthService) Authenticate(password string) (string, error) {
 	acc, err := a.load()
 	if err != nil || acc.PasswordHash == "" {
@@ -130,6 +138,12 @@ func (a *AuthService) Authenticate(password string) (string, error) {
 	if err := bcrypt.CompareHashAndPassword([]byte(acc.PasswordHash), []byte(password)); err != nil {
 		return "", ErrBadCredentials
 	}
+	return a.CreateSession(LocalActor)
+}
+
+// CreateSession mints a session for an already-verified identity
+// (used by the AD login path, after the directory said yes).
+func (a *AuthService) CreateSession(actor string) (string, error) {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", fmt.Errorf("mint session token: %w", err)
@@ -139,29 +153,35 @@ func (a *AuthService) Authenticate(password string) (string, error) {
 	if a.sessions == nil {
 		a.sessions = map[string]session{}
 	}
-	a.sessions[sessionKey(token)] = session{expiresAt: a.now().Add(SessionTTL)}
+	a.sessions[sessionKey(token)] = session{actor: actor, expiresAt: a.now().Add(SessionIdleTimeout)}
 	a.mu.Unlock()
 	return token, nil
 }
 
-// ValidateSession reports whether the token is a live session.
-// Expired sessions are pruned on sight.
-func (a *AuthService) ValidateSession(token string) bool {
+// ValidateSession reports whether the token is a live session and,
+// when it is, who it belongs to (the audit actor). Validation IS
+// activity: a live session's idle deadline slides forward by
+// SessionIdleTimeout on every call, so the 10-minute window always
+// runs from the last request, never from login. Expired sessions
+// are pruned on sight.
+func (a *AuthService) ValidateSession(token string) (string, bool) {
 	if token == "" {
-		return false
+		return "", false
 	}
 	key := sessionKey(token)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s, ok := a.sessions[key]
 	if !ok {
-		return false
+		return "", false
 	}
 	if a.now().After(s.expiresAt) {
 		delete(a.sessions, key)
-		return false
+		return "", false
 	}
-	return true
+	s.expiresAt = a.now().Add(SessionIdleTimeout)
+	a.sessions[key] = s
+	return s.actor, true
 }
 
 // Logout drops one session; dropping an unknown token is not an error.

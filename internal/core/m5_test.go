@@ -155,15 +155,43 @@ func TestAuthLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
-	if token == "" || !auth.ValidateSession(token) {
-		t.Fatal("fresh session must validate")
+	actor, ok := auth.ValidateSession(token)
+	if token == "" || !ok || actor != LocalActor {
+		t.Fatalf("fresh session must validate as %q, got actor=%q ok=%v", LocalActor, actor, ok)
 	}
-	if auth.ValidateSession("bukan-token") {
+	if _, ok := auth.ValidateSession("bukan-token"); ok {
 		t.Fatal("unknown token must not validate")
 	}
 	auth.Logout(token)
-	if auth.ValidateSession(token) {
+	if _, ok := auth.ValidateSession(token); ok {
 		t.Fatal("logged-out session must not validate")
+	}
+}
+
+// M5-AD: the idle timeout slides — activity inside the window keeps
+// the session alive past the original deadline, and only a full
+// idle window kills it.
+func TestAuthSessionSlidesOnActivity(t *testing.T) {
+	clock := &mutableClock{t: time.Unix(1700000000, 0)}
+	auth := &AuthService{Files: newMemStore(), Path: "admin.json", Clock: clock}
+	if err := auth.SetPassword("rahasia-kuat-1"); err != nil {
+		t.Fatal(err)
+	}
+	token, err := auth.Authenticate("rahasia-kuat-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock.t = clock.t.Add(9 * time.Minute)
+	if _, ok := auth.ValidateSession(token); !ok {
+		t.Fatal("session must survive activity at 9 minutes")
+	}
+	clock.t = clock.t.Add(9 * time.Minute) // 18 min after login, 9 after last activity
+	if _, ok := auth.ValidateSession(token); !ok {
+		t.Fatal("sliding session must survive past the original deadline while active")
+	}
+	clock.t = clock.t.Add(SessionIdleTimeout + time.Minute) // full idle window
+	if _, ok := auth.ValidateSession(token); ok {
+		t.Fatal("session must die after a full idle window without requests")
 	}
 }
 
@@ -177,8 +205,8 @@ func TestAuthSessionExpires(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clock.t = clock.t.Add(SessionTTL + time.Minute)
-	if auth.ValidateSession(token) {
+	clock.t = clock.t.Add(SessionIdleTimeout + time.Minute)
+	if _, ok := auth.ValidateSession(token); ok {
 		t.Fatal("expired session must not validate")
 	}
 }

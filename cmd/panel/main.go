@@ -149,6 +149,7 @@ func run() int {
 			if authSvc != nil {
 				application.AttachAuth(authSvc, auditLog)
 			}
+			wireAD(application, cfg, logger)
 			if projectsSvc != nil {
 				application.AttachServices(projectsSvc, phpMgr, apacheMgr)
 				supervisor.Log = logger
@@ -165,6 +166,7 @@ func run() int {
 			if authSvc != nil {
 				application.AttachAuth(authSvc, auditLog)
 			}
+			wireAD(application, cfg, logger)
 			if projectsSvc != nil {
 				application.AttachServices(projectsSvc, phpMgr, apacheMgr)
 				supervisor.Log = logger
@@ -204,6 +206,53 @@ func run() int {
 		},
 	}
 	return cli.New(deps).Run(os.Args[1:])
+}
+
+// wireAD attaches the directory authenticator from panel.json
+// (M5-AD). Every failure mode here is loud in the log but never
+// fatal: AD login answers 503 and the local break-glass account
+// keeps working, because a bad AD config must not lock the operator
+// out of their own panel.
+func wireAD(application *app.Application, cfg config.Config, logger *slog.Logger) {
+	adCfg := core.ADConfig{
+		Enabled:       cfg.ADEnabled,
+		Server:        cfg.ADServer,
+		Domain:        cfg.ADDomain,
+		BaseDN:        cfg.ADBaseDN,
+		GroupDN:       cfg.ADGroupDN,
+		CAFile:        cfg.ADCAFile,
+		AllowInsecure: cfg.ADAllowInsecureLDAP,
+		DummyUsers:    cfg.ADDummyUsers,
+	}
+	if !adCfg.Enabled {
+		application.AttachAD(nil, adCfg, nil)
+		return
+	}
+	if err := adCfg.Validate(); err != nil {
+		logger.Warn("AD disabled: invalid directory configuration", "err", err)
+		application.AttachAD(nil, adCfg, err)
+		return
+	}
+	if adCfg.IsDummy() {
+		logger.Warn("AD DUMMY MODE active — this is NOT real Active Directory authentication, never use it in production")
+		application.AttachAD(core.DummyAuthenticator{Users: adCfg.DummyUsers, GroupCN: adCfg.GroupCN()}, adCfg, nil)
+		return
+	}
+	ldapAuth, err := platform.NewLDAPAuthenticator(platform.ADConfigFrom(adCfg))
+	if err != nil {
+		logger.Warn("AD disabled: invalid directory configuration", "err", err)
+		application.AttachAD(nil, adCfg, err)
+		return
+	}
+	if err := ldapAuth.CheckTLS(); err != nil {
+		logger.Warn("AD disabled: directory TLS configuration invalid", "err", err)
+		application.AttachAD(nil, adCfg, err)
+		return
+	}
+	if adCfg.AllowInsecure {
+		logger.Warn("AD plain LDAP without TLS is enabled (ad_allow_insecure_ldap) — credentials cross the LAN in cleartext, test-only")
+	}
+	application.AttachAD(ldapAuth, adCfg, nil)
 }
 
 // brokenOps stands in for the M2 pipeline when panel.json cannot be

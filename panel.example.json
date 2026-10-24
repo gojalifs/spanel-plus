@@ -1,1 +1,1 @@
-{"apache_home":"","apache_service":"Apache2.4","data_dir":"","document_root":"","log_dir":"","port":8888}
+{"ad_allow_insecure_ldap":false,"ad_base_dn":"DC=siws,DC=local","ad_ca_file":"","ad_domain":"siws.local","ad_enabled":false,"ad_group_dn":"CN=IS,DC=siws,DC=local","ad_server":"ldaps://dc.siws.local:636","apache_home":"","apache_service":"Apache2.4","data_dir":"","document_root":"","log_dir":"","port":8888}

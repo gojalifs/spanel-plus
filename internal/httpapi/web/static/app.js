@@ -37,11 +37,30 @@ function showDashboard() {
   $('btn-logout').hidden = false;
 }
 
+// ---------- M5-AD: login toggle (akun panel vs akun AD) ----------
+
+let loginMethod = 'local';
+
+function setLoginMethod(method) {
+  loginMethod = method;
+  $('login-mode-local').className = method === 'local' ? 'active' : '';
+  $('login-mode-ad').className = method === 'ad' ? 'active' : '';
+  $('login-username').hidden = method !== 'ad';
+  $('login-password').placeholder = method === 'ad' ? 'Password AD' : 'Password admin';
+}
+
 async function boot() {
   try {
     const st = await api('GET', '/api/v1/auth/status');
     if (!st.configured) {
       $('login-hint').textContent = 'Akun admin belum dibuat. Di server, jalankan: panel admin set-password — lalu login di sini.';
+    }
+    // The AD toggle is only offered when the panel actually has a
+    // directory configured; otherwise it would promise a login
+    // that can only fail.
+    if (!st.ad_enabled) {
+      $('login-mode-ad').disabled = true;
+      $('login-mode-ad').title = 'Login AD belum diaktifkan di panel.json (ad_enabled).';
     }
     if (st.authenticated) {
       showDashboard();
@@ -434,11 +453,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  $('login-mode-local').addEventListener('click', () => setLoginMethod('local'));
+  $('login-mode-ad').addEventListener('click', () => setLoginMethod('ad'));
   $('login-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     try {
-      await api('POST', '/api/v1/auth/login', { password: $('login-password').value });
+      const body = { method: loginMethod, password: $('login-password').value };
+      if (loginMethod === 'ad') body.username = $('login-username').value;
+      await api('POST', '/api/v1/auth/login', body);
       $('login-password').value = '';
+      $('login-username').value = '';
       showDashboard();
       loadAll();
     } catch (e) {

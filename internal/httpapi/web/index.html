@@ -20,9 +20,14 @@
 
 <main>
   <section class="card" id="login-card" hidden>
-    <h2>Login admin</h2>
-    <p id="login-hint" class="muted">Panel ini hanya untuk admin. Sesi berlaku 12 jam.</p>
+    <h2>Login</h2>
+    <p id="login-hint" class="muted">Panel ini hanya untuk admin. Sesi berakhir sesudah 10 menit tanpa aktivitas.</p>
+    <div id="login-modes">
+      <button type="button" id="login-mode-local" class="active">Akun panel</button>
+      <button type="button" id="login-mode-ad">Akun AD</button>
+    </div>
     <form id="login-form" class="inline-form">
+      <input id="login-username" type="text" placeholder="Username AD" size="30" autocomplete="username" hidden>
       <input id="login-password" type="password" placeholder="Password admin" size="30" required autocomplete="current-password">
       <button type="submit">Login</button>
     </form>

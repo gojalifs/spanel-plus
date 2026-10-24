@@ -107,6 +107,8 @@ type APIClient interface {
 	RunOnce(project, command string) (string, int, error)
 	ScheduleRun(project string) (string, int, error)
 	Login(password string) error
+	// LoginAD logs in with a directory account (M5-AD).
+	LoginAD(username, password string) error
 	Logout() error
 }
 
@@ -329,7 +331,17 @@ func (c *httpAPIClient) ScheduleRun(project string) (string, int, error) {
 }
 
 func (c *httpAPIClient) Login(password string) error {
-	raw, _ := json.Marshal(map[string]string{"password": password})
+	return c.loginCall(map[string]string{"method": "local", "password": password})
+}
+
+// LoginAD logs in with a directory account (M5-AD): the panel
+// verifies the password against AD, the CLI only carries the token.
+func (c *httpAPIClient) LoginAD(username, password string) error {
+	return c.loginCall(map[string]string{"method": "ad", "username": username, "password": password})
+}
+
+func (c *httpAPIClient) loginCall(body map[string]string) error {
+	raw, _ := json.Marshal(body)
 	req, err := http.NewRequest(http.MethodPost, c.base+"/api/v1/auth/login", bytes.NewReader(raw))
 	if err != nil {
 		return err
@@ -341,10 +353,11 @@ func (c *httpAPIClient) Login(password string) error {
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode == http.StatusUnauthorized {
-		return ErrNeedLogin
-	}
 	if resp.StatusCode >= 400 {
+		// A failed login is a credential/config error, not a
+		// "you are not logged in" state: surface the panel's own
+		// message instead of the login hint (which would tell the
+		// user to run the command that just failed).
 		var msg struct {
 			Error string `json:"error"`
 		}

@@ -35,6 +35,23 @@ type Application struct {
 	logDir    string
 	auth      *core.AuthService
 	audit     core.AuditLogger
+	ad        core.Authenticator // nil = directory login unavailable
+	adConfig  core.ADConfig
+	adErr     error // construction/validation error: AD login answers 503, local stays up
+}
+
+// AttachAD wires the directory authenticator (M5-AD). When the
+// authenticator failed to build (bad config, unreadable CA file),
+// adErr is kept so the AD login endpoint can explain itself — the
+// local account is never taken down by an AD misconfiguration.
+func (a *Application) AttachAD(auth core.Authenticator, cfg core.ADConfig, err error) {
+	a.ad, a.adConfig, a.adErr = auth, cfg, err
+}
+
+// AD returns the directory authenticator (or nil), its config, and
+// any build error.
+func (a *Application) AD() (core.Authenticator, core.ADConfig, error) {
+	return a.ad, a.adConfig, a.adErr
 }
 
 // AttachAuth wires the M5 admin auth service and audit sink. When no
@@ -154,6 +171,11 @@ func (a *Application) DoctorInput() core.DoctorInput {
 		Candidates: config.DefaultApacheCandidates(),
 		PanelPort:  a.cfg.Port,
 		DataDir:    a.cfg.DataDir,
+		ADEnabled:  a.cfg.ADEnabled,
+		ADServer:   a.cfg.ADServer,
+		ADDomain:   a.cfg.ADDomain,
+		ADBaseDN:   a.cfg.ADBaseDN,
+		ADGroupDN:  a.cfg.ADGroupDN,
 	}
 }
 

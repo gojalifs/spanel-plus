@@ -55,6 +55,13 @@ type DoctorInput struct {
 	// ApacheService is the managed Apache's service name for the
 	// service-state check; empty skips it.
 	ApacheService string
+	// AD fields feed the M5-AD directory-config check; ADEnabled
+	// false skips it entirely (a panel without AD is not unhealthy).
+	ADEnabled bool
+	ADServer  string
+	ADDomain  string
+	ADBaseDN  string
+	ADGroupDN string
 }
 
 // Doctor validates the environment the panel depends on. M1 scope
@@ -110,7 +117,40 @@ func (d Doctor) Run(ctx context.Context, in DoctorInput) Report {
 			add(c)
 		}
 	}
+	if in.ADEnabled {
+		add(d.adConfigCheck(in))
+	}
 	return rep
+}
+
+// adConfigCheck (M5-AD) validates the directory configuration only
+// — it never binds, because doctor has no credentials to bind with.
+// Dummy mode is a WARN, not a PASS: it is a development stand-in
+// and must never be mistaken for production AD.
+func (d Doctor) adConfigCheck(in DoctorInput) Check {
+	if in.ADServer == "dummy" {
+		return Check{"ad-config", StatusWarn,
+			"AD dummy mode aktif — bukan autentikasi AD sungguhan, jangan dipakai produksi"}
+	}
+	missing := []string{}
+	if in.ADServer == "" {
+		missing = append(missing, "ad_server")
+	}
+	if in.ADDomain == "" {
+		missing = append(missing, "ad_domain")
+	}
+	if in.ADBaseDN == "" {
+		missing = append(missing, "ad_base_dn")
+	}
+	if in.ADGroupDN == "" {
+		missing = append(missing, "ad_group_dn")
+	}
+	if len(missing) > 0 {
+		return Check{"ad-config", StatusFail,
+			"konfigurasi AD belum lengkap, kurang: " + strings.Join(missing, ", ")}
+	}
+	return Check{"ad-config", StatusPass,
+		"AD terkonfigurasi (server " + in.ADServer + ", grup " + in.ADGroupDN + ")"}
 }
 
 // ResolveApacheHome determines the managed Apache installation:
