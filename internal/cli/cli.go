@@ -36,6 +36,9 @@ type Deps struct {
 	// Serve runs the panel until stopped; main wires it to the
 	// platform layer (console or Windows Service).
 	Serve func(cfg config.Config, logger *slog.Logger) error
+	// OpenDesktop runs the panel as a desktop app (native window);
+	// main wires it to internal/desktop.
+	OpenDesktop func(cfg config.Config, logger *slog.Logger) error
 }
 
 // CLI is the command dispatcher.
@@ -47,10 +50,13 @@ func New(deps Deps) *CLI { return &CLI{deps: deps} }
 const usage = `SPanel+ — admin panel Windows untuk multi-PHP per path (internal)
 
 Usage:
-  panel <command>
+  panel [command]
 
 Commands:
-  serve                 Jalankan panel (console, atau sebagai Windows Service bila dimulai SCM)
+  app                   Buka panel sebagai aplikasi desktop (jendela WebView2). Ini juga
+                        yang jalan bila panel.exe dibuka tanpa perintah (double-click).
+  serve                 Jalankan server panel tanpa jendela (console, atau sebagai
+                        Windows Service bila dimulai SCM)
   doctor                Periksa lingkungan: path Apache, httpd -v, mod_fcgid, port panel, data dir
   service install       Daftarkan panel sebagai Windows Service (start otomatis saat boot) [Administrator]
   service uninstall     Hapus Windows Service panel [Administrator]
@@ -67,13 +73,16 @@ Konfigurasi: file panel.json di folder yang sama dengan panel.exe
 // Run executes one command line and returns the process exit code.
 func (c *CLI) Run(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprint(c.deps.Out, usage)
-		return 0
+		// Double-click (atau `panel` polos) membuka aplikasi desktop —
+		// keputusan max 2026-10-24: panel diakses lewat exe, bukan browser.
+		return c.runApp()
 	}
 	switch args[0] {
 	case "help", "-h", "--help":
 		fmt.Fprint(c.deps.Out, usage)
 		return 0
+	case "app":
+		return c.runApp()
 	case "version", "-v", "--version":
 		fmt.Fprintf(c.deps.Out, "%s %s (%s)\n", buildinfo.Name, buildinfo.Version, buildinfo.Commit)
 		return 0
@@ -113,6 +122,27 @@ func (c *CLI) runDoctor() int {
 		return 1
 	}
 	fmt.Fprintln(c.deps.Out, "\nDoctor: SEHAT — semua pemeriksaan lulus.")
+	return 0
+}
+
+func (c *CLI) runApp() int {
+	cfg, code := c.loadConfig()
+	if code != 0 {
+		return code
+	}
+	logger, closer, err := c.deps.NewLogger(cfg.LogDir, true)
+	if err != nil {
+		fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+		return 1
+	}
+	defer closer.Close()
+	logger.Info("panel desktop starting", "version", buildinfo.Version, "port", cfg.Port)
+	if err := c.deps.OpenDesktop(cfg, logger); err != nil {
+		logger.Error("panel desktop exited with error", "err", err)
+		fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+		return 1
+	}
+	logger.Info("panel desktop closed")
 	return 0
 }
 

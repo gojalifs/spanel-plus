@@ -4,9 +4,10 @@ Admin panel untuk Windows — cPanel-like, untuk pemakaian internal perusahaan.
 Satu instance Apache, routing berbasis path (`IP/nama-proyek`, URL aplikasi tidak berubah),
 multi-PHP per proyek via `mod_fcgid` (PHP `php-cgi.exe` per versi, build NTS, `mod_php` mati),
 Laravel dipetakan `Alias` langsung ke folder `public` (`/public` hilang dari URL).
-Panel-nya sendiri: Go, satu binary — Windows Service native + web UI ter-embed + tool CLI
-dari core yang sama, termasuk supervisor proses CLI per proyek (queue/scheduler/artisan
-memakai `php.exe` versi proyek itu).
+Panel-nya sendiri: Go, satu binary — aplikasi desktop (jendela WebView2 dari exe) +
+Windows Service native + UI ter-embed + tool CLI dari core yang sama, termasuk
+supervisor proses CLI per proyek (queue/scheduler/artisan memakai `php.exe`
+versi proyek itu).
 
 Rencana lengkap & keputusan terkunci (D1–D10, milestone M0–M6, requirement automated
 testing): [`docs/plan-fase-1.md`](docs/plan-fase-1.md)
@@ -25,8 +26,16 @@ dibangun, menunggu smoke test service di mesin Windows.**
   Windows Service, UI skeleton ter-embed di port panel (default 8888),
   subcommand `doctor` versi awal, logging terstruktur (JSON) ke
   `logs/panel.log`. Unit test lulus & cross-compile Windows terverifikasi
-  di VM Muse; kriteria service M1 dibuktikan lewat
-  [`docs/m1-smoke-test.md`](docs/m1-smoke-test.md) di mesin Windows.
+  di VM Muse; mode console + UI + doctor (lawan Apache M0) sudah
+  terbukti dari screenshot mesin Windows max 2026-10-24 — sisa kriteria
+  service dibuktikan lewat
+  [`docs/m1-smoke-test.md`](docs/m1-smoke-test.md).
+- **Mode desktop (v0.2.0-m1, keputusan max 2026-10-24):** panel dibuka
+  sebagai aplikasi desktop, bukan tab browser — double-click
+  `panel.exe` (atau `panel app`) membuka jendela WebView2 berisi UI
+  yang sama. Bila service panel sudah jalan (mis. dari boot), jendela
+  memakai server itu; bila belum, server in-process dinyalakan dan
+  dimatikan bersih saat jendela ditutup. Revisi D7 di plan.
 
 ## Menjalankan M0
 
@@ -44,23 +53,31 @@ Detail: [`m0/README-M0.md`](m0/README-M0.md)
 
 ## M1 — Skeleton Go
 
-Prasyarat: Go **1.24+** (satu-satunya dependensi pihak ketiga:
-`golang.org/x/sys` untuk Windows Service).
+Prasyarat build: Go **1.24+**. Prasyarat jalan: WebView2 Runtime
+(sudah termasuk di Windows 10/11 lewat Microsoft Edge) untuk mode
+desktop. Dependensi pihak ketiga: `golang.org/x/sys` (Windows
+Service) dan `github.com/jchv/go-webview2` (jendela desktop, pure Go
+tanpa CGO).
 
 ```bash
 # build (Git Bash di Windows menghasilkan panel.exe)
 go build -o panel.exe ./cmd/panel
 
 # perintah
+panel.exe                     # = panel app: buka aplikasi desktop (atau double-click exe-nya)
+panel.exe app                 # sama: jendela desktop WebView2
 panel.exe version
 panel.exe doctor              # cek path Apache, httpd -v, mod_fcgid, port, data dir
-panel.exe serve               # console; bila dimulai SCM, jalan sebagai Windows Service
+panel.exe serve               # server tanpa jendela; bila dimulai SCM, jalan sebagai Windows Service
 panel.exe service install     # Administrator: daftar service, start otomatis saat boot
 panel.exe service start|stop|status|uninstall
 ```
 
-- UI/API: `http://127.0.0.1:8888` — `GET /` (UI ter-embed),
-  `GET /healthz`, `GET /api/v1/status`, `GET /api/v1/doctor`.
+- UI/API tetap di `http://127.0.0.1:8888` (localhost) — `GET /` (UI
+  ter-embed), `GET /healthz`, `GET /api/v1/status`,
+  `GET /api/v1/doctor`. Mode desktop menampilkannya di jendela
+  WebView2; membuka alamat itu dari browser juga tetap bisa selama
+  `serve`/service jalan.
 - Konfigurasi opsional: `panel.json` di sebelah binary (lihat
   `panel.example.json`); `apache_home` kosong = auto-discovery
   (`C:\xampp\apache`, `C:\Apache24`, `C:\m0\Apache24`).
@@ -74,6 +91,7 @@ cmd/panel/          entrypoint: wiring dependensi saja
 internal/core/      logika inti + interface port (CommandRunner, FileProbe, PortProbe, Clock, ServiceController) + doctor
 internal/app/       komposisi aplikasi & lifecycle serve
 internal/httpapi/   handler HTTP tipis + web UI ter-embed
+internal/desktop/   launcher mode desktop (server in-process/reuse + jendela WebView2)
 internal/cli/       dispatcher subcommand tipis
 internal/platform/  implementasi OS: exec, probe filesystem/port, Windows Service (x/sys)
 internal/config/    panel.json (default, validasi, error keras bila file rusak)
@@ -93,4 +111,5 @@ pertama ditolak GitHub (`403 Resource not accessible by integration`)
 karena instalasi GitHub App Muse belum punya izin *Workflows*.
 File-nya siap di staging Muse; masuk repo begitu izin itu diberikan
 (atau di-commit manual dari mesin Windows). Cakupan unit test saat
-M1: core/doctor 95%, httpapi 91%, config 86%, logging 82%, cli 76%.
+M1: core/doctor 95%, desktop 96%, httpapi 91%, config 86%, logging 82%,
+cli 79%.

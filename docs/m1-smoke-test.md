@@ -20,24 +20,29 @@ Simpan `panel.exe` di folder sendiri, mis. `C:\panel\` (di luar folder
 proyek, sesuai Plan D9). Semua file panel (`data\`, `logs\`,
 `panel.json` opsional) hidup di folder itu.
 
-## 1. Console mode
+## 1. Console mode — TERBUKTI 2026-10-24 (screenshot max)
+
+- [x] `doctor` dari API: semua PASS terhadap Apache M0
+      (`C:\m0\Apache24` auto-discovered, Apache 2.4.69, mod_fcgid,
+      data dir `C:\Panel\data` writable), satu-satunya WARN adalah
+      `panel-port` yang memang dirancang begitu.
+- [x] UI tampil & kartu Status/Doctor terisi dari API
+      (versi 0.1.0-m1 saat itu).
+
+## 1b. Mode desktop (v0.2.0-m1, keputusan max 2026-10-24)
 
 ```bat
-cd C:\panel
-panel.exe version
-panel.exe doctor
-panel.exe serve
+:: cukup double-click panel.exe, atau:
+panel.exe app
 ```
 
-- [ ] `doctor` (panel belum jalan): semua PASS, termasuk
-      `httpd-version` membaca Apache dari `C:\m0\Apache24` dan
-      `mod-fcgid` PASS. Exit code 0.
-- [ ] Browser ke `http://127.0.0.1:8888` — UI skeleton tampil,
-      kartu Status terisi dari API, kartu Doctor tampil
-      (baris `panel-port` WARN "held by this panel itself" itu benar).
-- [ ] `curl http://127.0.0.1:8888/healthz` → `{"status":"ok"}`
-- [ ] Ctrl+C di jendela `serve` → panel berhenti bersih,
-      `logs\panel.log` berisi baris `panel stopped cleanly`.
+- [ ] Jendela desktop SPanel+ terbuka (bukan tab browser), UI sama
+      seperti mode web; jendela konsol bawaan double-click hilang.
+- [ ] Tutup jendela → proses panel ikut berhenti bersih
+      (`logs\panel.log`: `panel desktop closed`).
+- [ ] Dengan service panel terpasang & jalan (langkah 2): buka
+      `panel.exe app` → jendela tampil; tutup jendela → service
+      TETAP jalan (UI dari browser/service masih menjawab).
 
 ## 2. Windows Service (terminal Administrator)
 

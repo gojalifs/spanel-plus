@@ -62,10 +62,11 @@ func testDeps() (Deps, *bytes.Buffer, *bytes.Buffer) {
 		NewLogger: func(string, bool) (*slog.Logger, io.Closer, error) {
 			return slog.New(slog.NewTextHandler(io.Discard, nil)), io.NopCloser(nil), nil
 		},
-		Doctor:  core.Doctor{Runner: okRunner{}, Files: okFiles{}, Ports: okPorts{}},
-		Service: fakeService{},
-		Clock:   fixedClock{},
-		Serve:   func(config.Config, *slog.Logger) error { return nil },
+		Doctor:      core.Doctor{Runner: okRunner{}, Files: okFiles{}, Ports: okPorts{}},
+		Service:     fakeService{},
+		Clock:       fixedClock{},
+		Serve:       func(config.Config, *slog.Logger) error { return nil },
+		OpenDesktop: func(config.Config, *slog.Logger) error { return nil },
 	}
 	return deps, out, errOut
 }
@@ -85,6 +86,32 @@ func TestHelpAndVersion(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "SPanel+") {
 		t.Errorf("version output must name the panel, got: %q", out.String())
+	}
+}
+
+func TestAppCommandAndNoArgsOpenDesktop(t *testing.T) {
+	// Keputusan max 2026-10-24: panel diakses via exe sebagai aplikasi
+	// desktop — double-click (tanpa argumen) dan `panel app` sama-sama
+	// membuka jendela desktop.
+	for _, args := range [][]string{{"app"}, {}} {
+		deps, _, _ := testDeps()
+		opened := false
+		deps.OpenDesktop = func(config.Config, *slog.Logger) error { opened = true; return nil }
+		if code := New(deps).Run(args); code != 0 {
+			t.Errorf("Run(%v) exit = %d, want 0", args, code)
+		}
+		if !opened {
+			t.Errorf("Run(%v) must invoke OpenDesktop", args)
+		}
+	}
+
+	deps, _, errOut := testDeps()
+	deps.OpenDesktop = func(config.Config, *slog.Logger) error { return errors.New("no webview2") }
+	if code := New(deps).Run([]string{"app"}); code != 1 {
+		t.Errorf("failing app exit = %d, want 1", code)
+	}
+	if !strings.Contains(errOut.String(), "no webview2") {
+		t.Errorf("app failure must surface the error, got: %q", errOut.String())
 	}
 }
 
