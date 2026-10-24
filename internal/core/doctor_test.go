@@ -27,7 +27,15 @@ type fakeRunner struct {
 	err error
 }
 
-func (r fakeRunner) Run(context.Context, string, ...string) (string, error) {
+func (r fakeRunner) Run(_ context.Context, _ string, args ...string) (string, error) {
+	// httpd -t answers differently from httpd -v; the fake mirrors
+	// that so the M5 syntax check passes on a healthy fixture.
+	if len(args) > 0 && args[len(args)-1] == "-t" {
+		if r.err != nil {
+			return r.out, r.err
+		}
+		return "Syntax OK\n", nil
+	}
 	return r.out, r.err
 }
 
@@ -59,8 +67,16 @@ func TestDoctorAllPassWithDiscoveredHome(t *testing.T) {
 	if !rep.Healthy {
 		t.Fatalf("expected healthy report, got %+v", rep.Checks)
 	}
-	if len(rep.Checks) != 5 {
-		t.Fatalf("expected 5 checks, got %d", len(rep.Checks))
+	// M5: httpd-syntax joins the M1 five (home, version, mod-fcgid,
+	// panel-port, data-dir). Service/registry checks appear only
+	// when wired/supplied.
+	if len(rep.Checks) != 6 {
+		t.Fatalf("expected 6 checks, got %d", len(rep.Checks))
+	}
+	for _, c := range rep.Checks {
+		if c.Name == "httpd-syntax" && c.Status != StatusPass {
+			t.Errorf("httpd-syntax status = %s, want pass", c.Status)
+		}
 	}
 	if !strings.Contains(rep.Checks[1].Detail, "2.4.69") {
 		t.Errorf("httpd-version detail should carry parsed version, got %q", rep.Checks[1].Detail)

@@ -64,7 +64,10 @@ func NewHandler(application *app.Application, logger *slog.Logger) http.Handler 
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})
 
-	return mux
+	// M5: auth gate outside, audit outside that — unauthenticated
+	// state attempts are rejected before they reach a handler, and
+	// authenticated state changes are recorded.
+	return auditMiddleware(application, logger, authMiddleware(application, mux))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

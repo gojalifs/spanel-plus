@@ -50,12 +50,13 @@ func run() int {
 	// config the commands load; when the config is broken, commands
 	// get the config error itself instead of a half-wired pipeline.
 	var projectOps cli.ProjectOps
-	var apacheOps cli.ApacheOps
 	var projectsSvc *core.ProjectService
 	var phpMgr *core.PHPManager
 	var apacheMgr *core.ApacheManager
 	var supervisor *core.Supervisor
 	var scheduler *core.Scheduler
+	var authSvc *core.AuthService
+	var auditLog core.AuditLogger
 	if wireCfg, cfgErr := config.Load(baseDir); cfgErr == nil {
 		apacheHome, _ := core.ResolveApacheHome(platform.OSFileProbe{}, wireCfg.ApacheHome, config.DefaultApacheCandidates())
 		fileStore := platform.OSFileStore{}
@@ -106,10 +107,16 @@ func run() int {
 		}
 		apacheMgr = manager
 		projectOps = projectsSvc
-		apacheOps = manager
+		// M5: admin auth + audit live in the data dir, next to the
+		// registry; the doctor's service check uses the named
+		// Apache service controller (a WARN, not a FAIL, where
+		// service control does not exist).
+		authSvc = &core.AuthService{Files: fileStore, Path: filepath.Join(wireCfg.DataDir, "admin.json"), Clock: clock}
+		auditLog = &core.FileAuditLogger{Files: fileStore, Path: filepath.Join(wireCfg.DataDir, "audit.log"), Clock: clock}
+		doctor.ApacheStatus = platform.NewNamedServiceController().Status
 	} else {
 		broken := &brokenOps{err: cfgErr}
-		projectOps, apacheOps = broken, broken
+		projectOps = broken
 	}
 
 	deps := cli.Deps{
@@ -118,15 +125,30 @@ func run() int {
 		LoadConfig: func() (config.Config, error) {
 			return config.Load(baseDir)
 		},
-		NewLogger:  logging.Setup,
-		Doctor:     doctor,
-		Service:    platform.NewServiceController(),
-		Clock:      clock,
-		Projects:   projectOps,
-		Apache:     apacheOps,
-		PHPManager: phpMgr,
+		NewLogger: logging.Setup,
+		Doctor:    doctor,
+		Service:   platform.NewServiceController(),
+		Clock:     clock,
+		Projects:  projectOps,
+		Stdin:     os.Stdin,
+		NewAPI: func(cfg config.Config) cli.APIClient {
+			return cli.NewHTTPAPIClient(
+				fmt.Sprintf("http://127.0.0.1:%d", cfg.Port),
+				cli.FileTokenStore{Path: filepath.Join(cfg.DataDir, ".cli-session")},
+				nil,
+			)
+		},
+		NewAuth: func(cfg config.Config) *core.AuthService {
+			return &core.AuthService{Files: platform.OSFileStore{}, Path: filepath.Join(cfg.DataDir, "admin.json"), Clock: clock}
+		},
+		NewAudit: func(cfg config.Config) core.AuditLogger {
+			return &core.FileAuditLogger{Files: platform.OSFileStore{}, Path: filepath.Join(cfg.DataDir, "audit.log"), Clock: clock}
+		},
 		Serve: func(cfg config.Config, logger *slog.Logger) error {
 			application := app.New(cfg, logger, doctor, clock)
+			if authSvc != nil {
+				application.AttachAuth(authSvc, auditLog)
+			}
 			if projectsSvc != nil {
 				application.AttachServices(projectsSvc, phpMgr, apacheMgr)
 				supervisor.Log = logger
@@ -140,6 +162,9 @@ func run() int {
 		},
 		OpenDesktop: func(cfg config.Config, logger *slog.Logger) error {
 			application := app.New(cfg, logger, doctor, clock)
+			if authSvc != nil {
+				application.AttachAuth(authSvc, auditLog)
+			}
 			if projectsSvc != nil {
 				application.AttachServices(projectsSvc, phpMgr, apacheMgr)
 				supervisor.Log = logger

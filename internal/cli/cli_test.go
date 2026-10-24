@@ -38,7 +38,10 @@ func (okFiles) EnsureWritableDir(string) error { return nil }
 
 type okRunner struct{}
 
-func (okRunner) Run(context.Context, string, ...string) (string, error) {
+func (okRunner) Run(_ context.Context, _ string, args ...string) (string, error) {
+	if len(args) > 0 && args[len(args)-1] == "-t" {
+		return "Syntax OK\n", nil
+	}
 	return "Server version: Apache/2.4.69 (Win64)", nil
 }
 

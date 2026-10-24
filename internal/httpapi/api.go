@@ -20,6 +20,10 @@ type api struct {
 }
 
 func (a *api) register(mux *http.ServeMux) {
+	// M5 auth surface (public; the gate in server.go lets these through).
+	mux.HandleFunc("POST /api/v1/auth/login", a.authLogin)
+	mux.HandleFunc("GET /api/v1/auth/status", a.authStatus)
+	mux.HandleFunc("POST /api/v1/auth/logout", a.authLogout)
 	mux.HandleFunc("GET /api/v1/overview", a.overview)
 	mux.HandleFunc("GET /api/v1/projects", a.listProjects)
 	mux.HandleFunc("POST /api/v1/projects", a.addProject)
@@ -33,6 +37,7 @@ func (a *api) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/php", a.registerPHP)
 	mux.HandleFunc("DELETE /api/v1/php/{version}", a.removePHP)
 	mux.HandleFunc("GET /api/v1/php/{version}/modules", a.phpModules)
+	mux.HandleFunc("GET /api/v1/apache/status", a.apacheStatus)
 	mux.HandleFunc("POST /api/v1/apache/restart", a.apacheRestart)
 	mux.HandleFunc("POST /api/v1/apache/test", a.apacheTest)
 	// M4 supervisor surface.
@@ -364,6 +369,19 @@ func (a *api) phpModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"modules": mods})
+}
+
+func (a *api) apacheStatus(w http.ResponseWriter, _ *http.Request) {
+	_, _, apache := a.services(w)
+	if apache == nil {
+		return
+	}
+	status, err := apache.Status()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": status})
 }
 
 func (a *api) apacheRestart(w http.ResponseWriter, r *http.Request) {

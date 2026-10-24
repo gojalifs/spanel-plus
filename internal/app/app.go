@@ -33,6 +33,26 @@ type Application struct {
 	runtime   Runtime
 	logFiles  core.FileStore
 	logDir    string
+	auth      *core.AuthService
+	audit     core.AuditLogger
+}
+
+// AttachAuth wires the M5 admin auth service and audit sink. When no
+// auth is attached (tests, degraded mode), the API stays open —
+// production wiring in main always attaches both.
+func (a *Application) AttachAuth(auth *core.AuthService, audit core.AuditLogger) {
+	a.auth, a.audit = auth, audit
+}
+
+// Auth returns the attached auth service, or nil.
+func (a *Application) Auth() *core.AuthService { return a.auth }
+
+// Audit returns the attached audit sink, or a discarding one.
+func (a *Application) Audit() core.AuditLogger {
+	if a.audit == nil {
+		return core.DiscardAuditLogger{}
+	}
+	return a.audit
 }
 
 // AttachRuntime wires the supervisor/scheduler runtime and the
@@ -110,9 +130,19 @@ func (a *Application) Status() Status {
 // Doctor runs the environment checks against this app's config.
 // Because this is called while the panel itself serves the request,
 // the panel-port check is told the listener is us (WARN, not FAIL).
+// The registry (when loadable) feeds the M5 PHP/project checks; a
+// load failure only skips those checks and is logged, never hidden
+// behind a healthy report.
 func (a *Application) Doctor(ctx context.Context) core.Report {
 	in := a.DoctorInput()
 	in.PanelPortSelf = true
+	if a.projects != nil {
+		if reg, err := a.projects.List(); err == nil {
+			in.Registry = &reg
+		} else {
+			a.logger.Warn("doctor: registry unreadable, skipping registry checks", "err", err)
+		}
+	}
 	return a.doctor.Run(ctx, in)
 }
 

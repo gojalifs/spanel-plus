@@ -13,11 +13,22 @@
   <span id="apache-chip" class="badge">Apache: …</span>
   <button id="btn-apache-restart" type="button">Restart Apache</button>
   <button id="btn-apache-test" type="button">Tes config</button>
+  <button id="btn-logout" type="button" hidden>Logout</button>
 </header>
 
 <div id="toast" class="toast" hidden></div>
 
 <main>
+  <section class="card" id="login-card" hidden>
+    <h2>Login admin</h2>
+    <p id="login-hint" class="muted">Panel ini hanya untuk admin. Sesi berlaku 12 jam.</p>
+    <form id="login-form" class="inline-form">
+      <input id="login-password" type="password" placeholder="Password admin" size="30" required autocomplete="current-password">
+      <button type="submit">Login</button>
+    </form>
+    <p class="muted">Pertama kali? Di server, jalankan: <code>panel admin set-password</code> — lalu login di sini.</p>
+  </section>
+  <div id="dashboard">
   <section class="cards-row">
     <div class="card stat"><h2>Proyek aktif</h2><p id="stat-projects" class="big">…</p></div>
     <div class="card stat"><h2>Versi PHP</h2><p id="stat-php" class="big">…</p></div>
@@ -114,6 +125,7 @@
     <h2>Doctor</h2>
     <ul id="doctor-list"><li>Memuat…</li></ul>
   </section>
+  </div>
 </main>
 <script src="/static/app.js"></script>
 </body>

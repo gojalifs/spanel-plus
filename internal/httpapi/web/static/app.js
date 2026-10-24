@@ -13,10 +13,45 @@ async function api(method, path, body) {
   }
   const res = await fetch(path, opts);
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    showLogin();
+    throw new Error(data.error || 'Sesi habis — login lagi.');
+  }
   if (!res.ok) {
     throw new Error(data.error || ('HTTP ' + res.status));
   }
   return data;
+}
+
+// ---------- M5: login admin ----------
+
+function showLogin() {
+  $('login-card').hidden = false;
+  $('dashboard').hidden = true;
+  $('btn-logout').hidden = true;
+}
+
+function showDashboard() {
+  $('login-card').hidden = true;
+  $('dashboard').hidden = false;
+  $('btn-logout').hidden = false;
+}
+
+async function boot() {
+  try {
+    const st = await api('GET', '/api/v1/auth/status');
+    if (!st.configured) {
+      $('login-hint').textContent = 'Akun admin belum dibuat. Di server, jalankan: panel admin set-password — lalu login di sini.';
+    }
+    if (st.authenticated) {
+      showDashboard();
+      loadAll();
+    } else {
+      showLogin();
+    }
+  } catch (e) {
+    showLogin();
+  }
 }
 
 function toast(msg, ok) {
@@ -399,7 +434,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  loadAll();
+  $('login-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    try {
+      await api('POST', '/api/v1/auth/login', { password: $('login-password').value });
+      $('login-password').value = '';
+      showDashboard();
+      loadAll();
+    } catch (e) {
+      toast(e.message, false);
+    }
+  });
+  $('btn-logout').addEventListener('click', async () => {
+    try { await api('POST', '/api/v1/auth/logout'); } catch (e) { /* sesi sudah mati */ }
+    showLogin();
+  });
+
+  boot();
 });
 
 // ---------- M4: supervisor processes ----------

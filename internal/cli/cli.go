@@ -7,6 +7,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -40,36 +41,27 @@ type Deps struct {
 	// OpenDesktop runs the panel as a desktop app (native window);
 	// main wires it to internal/desktop.
 	OpenDesktop func(cfg config.Config, logger *slog.Logger) error
-	// Projects performs registry + apply operations (M2).
+	// Projects reads the registry directly, for `doctor` only:
+	// diagnostics must work when the panel is down. All state
+	// commands go through NewAPI instead (M5).
 	Projects ProjectOps
-	// Apache exposes managed-Apache diagnostics (M2).
-	Apache ApacheOps
-	// PHPManager registers PHP builds by probing the binaries (M3);
-	// used by `php add` when no explicit --version is given.
-	PHPManager PHPRegistrar
+	// NewAPI builds the HTTP client for the running panel from the
+	// loaded config (address + CLI session token location).
+	NewAPI func(cfg config.Config) APIClient
+	// NewAuth builds the local admin auth service (data dir from
+	// the loaded config) for `admin set-password`.
+	NewAuth func(cfg config.Config) *core.AuthService
+	// NewAudit builds the audit sink for local console actions.
+	NewAudit func(cfg config.Config) core.AuditLogger
+	// Stdin is where passwords are read from (os.Stdin in
+	// production; a buffer in tests).
+	Stdin io.Reader
 }
 
-// PHPRegistrar is the CLI's view of core.PHPManager.
-type PHPRegistrar interface {
-	Register(ctx context.Context, path string) (core.PHPRegistration, error)
-}
-
-// ProjectOps is the CLI's view of core.ProjectService.
+// ProjectOps is the CLI's view of the registry, used only by
+// `doctor` (local diagnostics). State commands use APIClient.
 type ProjectOps interface {
 	List() (core.Registry, error)
-	AddPHPVersion(v core.PHPVersion) error
-	RemovePHPVersion(version string) error
-	AddProject(ctx context.Context, p core.Project) (core.ApplyResult, error)
-	RemoveProject(ctx context.Context, name string) (core.ApplyResult, error)
-	SetPHP(ctx context.Context, name, version string) (core.ApplyResult, error)
-	SetEnabled(ctx context.Context, name string, enabled bool) (core.ApplyResult, error)
-}
-
-// ApacheOps is the CLI's view of the managed-Apache controls.
-type ApacheOps interface {
-	TestConfig(ctx context.Context) error
-	Status() (string, error)
-	Restart() error
 }
 
 // CLI is the command dispatcher.
@@ -94,22 +86,41 @@ Commands:
   service start         Start Windows Service panel [Administrator]
   service stop          Stop Windows Service panel [Administrator]
   service status        Tampilkan status Windows Service panel
+  login                 Login admin ke panel yang sedang jalan (sesi 12 jam, tersimpan lokal)
+  logout                Logout (hapus sesi lokal)
+  admin set-password    Buat/ganti password admin — perintah lokal, pertama kali sebelum login
   project list          Daftar proyek di registry
   project add --name N --url /path --path C:\folder --type laravel|php-native|static --php 8.2 [--public public] [--disabled]
+  project update N [flags seperti add]   Ubah proyek (flag yang tidak disebut memakai nilai lama)
   project set-php N V   Ganti versi PHP proyek lewat pipa apply (backup -> httpd -t -> restart -> health check -> rollback bila gagal)
   project enable N      Aktifkan proyek (apply)
   project disable N     Nonaktifkan proyek (apply)
   project remove N      Hapus proyek dari panel (apply; folder proyek tidak dihapus)
+  project config N      Tampilkan config Apache yang sedang berlaku untuk proyek
+  project warnings N    Tampilkan peringatan proyek (APP_URL, php_value di .htaccess, …)
+  project preview N V   Preview diff config bila PHP proyek diganti ke V (tanpa apply)
   php list              Daftar versi PHP terdaftar
-  php add --path C:\panel\php\8.2 [--version 8.2]   Daftarkan PHP; tanpa --version, versi terdeteksi dari php.exe (build TS ditolak)
+  php add --path C:\panel\php\8.2   Daftarkan PHP; versi terdeteksi dari php.exe (build TS ditolak)
   php remove V          Hapus versi PHP (ditolak bila masih dipakai proyek)
-  process list          Daftar definisi proses CLI per proyek (start/stop & log dari dashboard — supervisor tinggal di panel yang sedang jalan)
+  php modules V         Daftar extension PHP versi V
+  process list          Status runtime proses CLI per proyek (dari supervisor panel)
+  process start P N     Start proses N milik proyek P
+  process stop P N      Stop proses N (final — tidak di-restart supervisor)
+  process restart P N   Restart proses N
+  process log P N       Tampilkan log proses N
+  process run P <perintah>   Jalankan perintah sekali jalan di proyek P (artisan/*.php via php.exe proyek)
+  process schedule-run P    Jalankan artisan schedule:run proyek P sekali
   apache test           Jalankan httpd -t pada config aktif
   apache status         Status service Apache yang dikelola
   apache restart        Restart service Apache yang dikelola
   version               Tampilkan versi panel
   help                  Tampilkan bantuan ini
 
+Perintah project/php/apache/process berbicara ke panel yang sedang
+jalan lewat HTTP API (port di panel.json) dan butuh sesi login.
+Bila panel tidak jalan, mereka gagal keras dengan petunjuk
+menyalakannya dulu — bukan jalan pintas lokal, supaya CLI dan UI
+tidak pernah beraksi atas state yang berbeda.
 Konfigurasi: file panel.json di folder yang sama dengan panel.exe
 (port, data_dir, log_dir, apache_home, apache_service).
 `
@@ -134,6 +145,12 @@ func (c *CLI) Run(args []string) int {
 		return c.runDoctor()
 	case "serve":
 		return c.runServe()
+	case "login":
+		return c.runLogin()
+	case "logout":
+		return c.runLogout()
+	case "admin":
+		return c.runAdmin(args[1:])
 	case "service":
 		return c.runService(args[1:])
 	case "project":
@@ -159,13 +176,51 @@ func (c *CLI) loadConfig() (config.Config, int) {
 	return cfg, 0
 }
 
+// apiClient loads the config and builds the panel client for one
+// state command. A missing client factory is a wiring bug, not a
+// user error — it fails loud.
+func (c *CLI) apiClient() (APIClient, int) {
+	cfg, code := c.loadConfig()
+	if code != 0 {
+		return nil, code
+	}
+	if c.deps.NewAPI == nil {
+		fmt.Fprintln(c.deps.ErrOut, "ERROR: klien API panel tidak terpasang (kesalahan wiring)")
+		return nil, 1
+	}
+	return c.deps.NewAPI(cfg), 0
+}
+
+// apiErr prints an API failure in the operator's terms: a missing
+// session names the fix, a dead panel names how to start it.
+func (c *CLI) apiErr(err error) int {
+	switch {
+	case errors.Is(err, ErrNeedLogin):
+		fmt.Fprintln(c.deps.ErrOut, "ERROR: belum login / sesi habis — jalankan 'panel login' dulu (pertama kali: 'panel admin set-password').")
+	case errors.Is(err, ErrPanelDown):
+		fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+	default:
+		fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+	}
+	return 1
+}
+
 func (c *CLI) runDoctor() int {
 	cfg, code := c.loadConfig()
 	if code != 0 {
 		return code
 	}
 	application := app.New(cfg, discardLogger(), c.deps.Doctor, c.deps.Clock)
-	report := c.deps.Doctor.Run(context.Background(), application.DoctorInput())
+	in := application.DoctorInput()
+	in.ApacheService = cfg.ApacheService
+	// Doctor reads the registry file directly (local diagnostics):
+	// an unreadable registry only skips the registry checks.
+	if c.deps.Projects != nil {
+		if reg, err := c.deps.Projects.List(); err == nil {
+			in.Registry = &reg
+		}
+	}
+	report := c.deps.Doctor.Run(context.Background(), in)
 	for _, check := range report.Checks {
 		fmt.Fprintf(c.deps.Out, "%-5s %-14s %s\n", check.Status, check.Name, check.Detail)
 	}
@@ -276,22 +331,20 @@ func (c *CLI) printApplyResult(res core.ApplyResult) {
 	}
 }
 
-func (c *CLI) applyError(err error) int {
-	fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
-	return 1
-}
-
 func (c *CLI) runProject(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(c.deps.ErrOut, "usage: panel project list|add|set-php|enable|disable|remove ...")
+		fmt.Fprintln(c.deps.ErrOut, "usage: panel project list|add|update|set-php|enable|disable|remove|config|warnings|preview ...")
 		return 2
 	}
-	ctx := context.Background()
+	client, code := c.apiClient()
+	if code != 0 {
+		return code
+	}
 	switch args[0] {
 	case "list":
-		reg, err := c.deps.Projects.List()
+		reg, err := client.ListProjects()
 		if err != nil {
-			return c.applyError(err)
+			return c.apiErr(err)
 		}
 		if len(reg.Projects) == 0 {
 			fmt.Fprintln(c.deps.Out, "Belum ada proyek. Tambah dengan 'panel project add ...'.")
@@ -317,9 +370,55 @@ func (c *CLI) runProject(args []string) int {
 			PHPVersion:   flags["php"],
 			Enabled:      flags["disabled"] != "true",
 		}
-		res, err := c.deps.Projects.AddProject(ctx, p)
+		res, err := client.AddProject(p)
 		if err != nil {
-			return c.applyError(err)
+			return c.apiErr(err)
+		}
+		c.printApplyResult(res)
+		return 0
+	case "update":
+		// Merge flags over the stored project: an omitted flag keeps
+		// the old value (the dashboard edit form behaves the same
+		// way — it is always prefilled).
+		if len(args) < 2 {
+			fmt.Fprintln(c.deps.ErrOut, "usage: panel project update <name> [--url ...] [--path ...] [--type ...] [--public ...] [--php ...] [--disabled]")
+			return 2
+		}
+		_, flags, err := parseFlags(args[2:])
+		if err != nil {
+			fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+			return 2
+		}
+		reg, err := client.ListProjects()
+		if err != nil {
+			return c.apiErr(err)
+		}
+		p, ok := reg.FindProject(args[1])
+		if !ok {
+			fmt.Fprintf(c.deps.ErrOut, "ERROR: project %q tidak ditemukan\n", args[1])
+			return 1
+		}
+		if v, ok := flags["url"]; ok {
+			p.URLPath = v
+		}
+		if v, ok := flags["path"]; ok {
+			p.FSPath = v
+		}
+		if v, ok := flags["type"]; ok {
+			p.Type = core.ProjectType(v)
+		}
+		if v, ok := flags["public"]; ok {
+			p.PublicSubdir = v
+		}
+		if v, ok := flags["php"]; ok {
+			p.PHPVersion = v
+		}
+		if flags["disabled"] == "true" {
+			p.Enabled = false
+		}
+		res, err := client.UpdateProject(args[1], p)
+		if err != nil {
+			return c.apiErr(err)
 		}
 		c.printApplyResult(res)
 		return 0
@@ -328,9 +427,9 @@ func (c *CLI) runProject(args []string) int {
 			fmt.Fprintln(c.deps.ErrOut, "usage: panel project set-php <name> <version>")
 			return 2
 		}
-		res, err := c.deps.Projects.SetPHP(ctx, args[1], args[2])
+		res, err := client.SetPHP(args[1], args[2])
 		if err != nil {
-			return c.applyError(err)
+			return c.apiErr(err)
 		}
 		c.printApplyResult(res)
 		return 0
@@ -339,9 +438,9 @@ func (c *CLI) runProject(args []string) int {
 			fmt.Fprintf(c.deps.ErrOut, "usage: panel project %s <name>\n", args[0])
 			return 2
 		}
-		res, err := c.deps.Projects.SetEnabled(ctx, args[1], args[0] == "enable")
+		res, err := client.SetEnabled(args[1], args[0] == "enable")
 		if err != nil {
-			return c.applyError(err)
+			return c.apiErr(err)
 		}
 		c.printApplyResult(res)
 		return 0
@@ -350,11 +449,52 @@ func (c *CLI) runProject(args []string) int {
 			fmt.Fprintln(c.deps.ErrOut, "usage: panel project remove <name>")
 			return 2
 		}
-		res, err := c.deps.Projects.RemoveProject(ctx, args[1])
+		res, err := client.RemoveProject(args[1])
 		if err != nil {
-			return c.applyError(err)
+			return c.apiErr(err)
 		}
 		c.printApplyResult(res)
+		return 0
+	case "config":
+		if len(args) != 2 {
+			fmt.Fprintln(c.deps.ErrOut, "usage: panel project config <name>")
+			return 2
+		}
+		content, err := client.ProjectConfig(args[1])
+		if err != nil {
+			return c.apiErr(err)
+		}
+		fmt.Fprintln(c.deps.Out, content)
+		return 0
+	case "warnings":
+		if len(args) != 2 {
+			fmt.Fprintln(c.deps.ErrOut, "usage: panel project warnings <name>")
+			return 2
+		}
+		warnings, err := client.ProjectWarnings(args[1])
+		if err != nil {
+			return c.apiErr(err)
+		}
+		if len(warnings) == 0 {
+			fmt.Fprintln(c.deps.Out, "Tidak ada peringatan.")
+			return 0
+		}
+		for _, w := range warnings {
+			fmt.Fprintf(c.deps.Out, "%-24s %s\n", w.Code, w.Message)
+		}
+		return 0
+	case "preview":
+		if len(args) != 3 {
+			fmt.Fprintln(c.deps.ErrOut, "usage: panel project preview <name> <version>")
+			return 2
+		}
+		diff, err := client.PreviewSetPHP(args[1], args[2])
+		if err != nil {
+			return c.apiErr(err)
+		}
+		for _, line := range diff.Lines {
+			fmt.Fprintf(c.deps.Out, "%s %s\n", line.Kind, line.Text)
+		}
 		return 0
 	default:
 		fmt.Fprintf(c.deps.ErrOut, "subcommand project tidak dikenal: %q\n", args[0])
@@ -364,17 +504,21 @@ func (c *CLI) runProject(args []string) int {
 
 func (c *CLI) runPHP(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(c.deps.ErrOut, "usage: panel php list|add|remove ...")
+		fmt.Fprintln(c.deps.ErrOut, "usage: panel php list|add|remove|modules ...")
 		return 2
+	}
+	client, code := c.apiClient()
+	if code != 0 {
+		return code
 	}
 	switch args[0] {
 	case "list":
-		reg, err := c.deps.Projects.List()
+		reg, err := client.ListProjects()
 		if err != nil {
-			return c.applyError(err)
+			return c.apiErr(err)
 		}
 		if len(reg.PHPVersions) == 0 {
-			fmt.Fprintln(c.deps.Out, "Belum ada versi PHP terdaftar. Tambah dengan 'panel php add --version 8.2 --path ...'.")
+			fmt.Fprintln(c.deps.Out, "Belum ada versi PHP terdaftar. Tambah dengan 'panel php add --path ...'.")
 			return 0
 		}
 		for _, v := range reg.PHPVersions {
@@ -387,32 +531,38 @@ func (c *CLI) runPHP(args []string) int {
 			fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
 			return 2
 		}
-		// Without an explicit --version, probe the binaries and
-		// register what is actually installed (M3, Plan F2).
-		if flags["version"] == "" && c.deps.PHPManager != nil {
-			reg, err := c.deps.PHPManager.Register(context.Background(), flags["path"])
-			if err != nil {
-				return c.applyError(err)
-			}
-			fmt.Fprintf(c.deps.Out, "PHP %s terdaftar (%s) — terdeteksi %s %s %s, php.ini: %s.\n",
-				reg.Version.Version, reg.Version.Path, reg.Full, map[bool]string{true: "NTS", false: "TS"}[reg.NTS], reg.Arch, reg.PHPIni)
-			return 0
+		// The version is always probed from the binaries (M3, Plan
+		// F2): a typed version number could lie about the binary.
+		reg, err := client.RegisterPHP(flags["path"])
+		if err != nil {
+			return c.apiErr(err)
 		}
-		v := core.PHPVersion{Version: flags["version"], Path: flags["path"]}
-		if err := c.deps.Projects.AddPHPVersion(v); err != nil {
-			return c.applyError(err)
+		fmt.Fprintf(c.deps.Out, "PHP %s terdaftar (%s) — terdeteksi %s %s %s, php.ini: %s.\n",
+			reg.Version.Version, reg.Version.Path, reg.Full, map[bool]string{true: "NTS", false: "TS"}[reg.NTS], reg.Arch, reg.PHPIni)
+		for _, w := range reg.Warnings {
+			fmt.Fprintf(c.deps.Out, "PERINGATAN: %s\n", w)
 		}
-		fmt.Fprintf(c.deps.Out, "PHP %s terdaftar (%s).\n", v.Version, v.Path)
 		return 0
 	case "remove":
 		if len(args) != 2 {
 			fmt.Fprintln(c.deps.ErrOut, "usage: panel php remove <version>")
 			return 2
 		}
-		if err := c.deps.Projects.RemovePHPVersion(args[1]); err != nil {
-			return c.applyError(err)
+		if err := client.RemovePHP(args[1]); err != nil {
+			return c.apiErr(err)
 		}
 		fmt.Fprintf(c.deps.Out, "PHP %s terhapus dari registry.\n", args[1])
+		return 0
+	case "modules":
+		if len(args) != 2 {
+			fmt.Fprintln(c.deps.ErrOut, "usage: panel php modules <version>")
+			return 2
+		}
+		mods, err := client.PHPModules(args[1])
+		if err != nil {
+			return c.apiErr(err)
+		}
+		fmt.Fprintln(c.deps.Out, strings.Join(mods, ", "))
 		return 0
 	default:
 		fmt.Fprintf(c.deps.ErrOut, "subcommand php tidak dikenal: %q\n", args[0])
@@ -425,23 +575,27 @@ func (c *CLI) runApache(args []string) int {
 		fmt.Fprintln(c.deps.ErrOut, "usage: panel apache test|status|restart")
 		return 2
 	}
+	client, code := c.apiClient()
+	if code != 0 {
+		return code
+	}
 	switch args[0] {
 	case "test":
-		if err := c.deps.Apache.TestConfig(context.Background()); err != nil {
-			return c.applyError(err)
+		if err := client.ApacheTest(); err != nil {
+			return c.apiErr(err)
 		}
 		fmt.Fprintln(c.deps.Out, "httpd -t: Syntax OK")
 		return 0
 	case "status":
-		status, err := c.deps.Apache.Status()
+		status, err := client.ApacheStatus()
 		if err != nil {
-			return c.applyError(err)
+			return c.apiErr(err)
 		}
 		fmt.Fprintf(c.deps.Out, "Apache service: %s\n", status)
 		return 0
 	case "restart":
-		if err := c.deps.Apache.Restart(); err != nil {
-			return c.applyError(err)
+		if err := client.ApacheRestart(); err != nil {
+			return c.apiErr(err)
 		}
 		fmt.Fprintln(c.deps.Out, "Apache service direstart.")
 		return 0
@@ -479,33 +633,200 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// runProcess implements `panel process list`: the definitions from
-// the registry. Runtime control (start/stop/log) lives in the
-// running panel's supervisor and is driven from the dashboard/API —
-// a separate CLI process cannot supervise another process's
-// children; full CLI→API parity arrives in M5 (Plan Bagian 11).
+// runProcess implements the M5 CLI→API process surface (Plan F7):
+// the supervisor lives in the running panel, so the CLI drives it
+// through the API — the M4 limitation (list-only) is gone.
 func (c *CLI) runProcess(args []string) int {
-	if len(args) != 1 || args[0] != "list" {
-		fmt.Fprintln(c.deps.ErrOut, "usage: panel process list")
+	if len(args) == 0 {
+		fmt.Fprintln(c.deps.ErrOut, "usage: panel process list|start|stop|restart|log|run|schedule-run ...")
 		return 2
 	}
-	reg, err := c.deps.Projects.List()
-	if err != nil {
-		return c.applyError(err)
+	client, code := c.apiClient()
+	if code != 0 {
+		return code
 	}
-	found := false
-	for _, p := range reg.SortedProjects() {
-		for _, def := range p.CLIProcesses {
-			found = true
-			kind := def.Kind
-			if kind == "" {
-				kind = "long-running"
+	switch args[0] {
+	case "list":
+		sts, err := client.ProcessStatuses()
+		if err != nil {
+			return c.apiErr(err)
+		}
+		if len(sts) == 0 {
+			fmt.Fprintln(c.deps.Out, "Belum ada proses. Tambahkan dari dashboard (Edit proyek → Proses CLI) — template Laravel: queue & scheduler.")
+			return 0
+		}
+		fmt.Fprintf(c.deps.Out, "%-16s %-12s %-10s %-6s %-8s %s\n", "PROJECT", "NAME", "STATUS", "PID", "RESTARTS", "COMMAND")
+		for _, s := range sts {
+			fmt.Fprintf(c.deps.Out, "%-16s %-12s %-10s %-6d %-8d %s\n", s.Project, s.Name, s.State, s.PID, s.Restarts, s.Command)
+		}
+		return 0
+	case "start", "stop", "restart":
+		if len(args) != 3 {
+			fmt.Fprintf(c.deps.ErrOut, "usage: panel process %s <project> <name>\n", args[0])
+			return 2
+		}
+		var err error
+		switch args[0] {
+		case "start":
+			err = client.ProcessStart(args[1], args[2])
+		case "stop":
+			err = client.ProcessStop(args[1], args[2])
+		case "restart":
+			err = client.ProcessRestart(args[1], args[2])
+		}
+		if err != nil {
+			return c.apiErr(err)
+		}
+		fmt.Fprintf(c.deps.Out, "Proses %s/%s: %s OK.\n", args[1], args[2], args[0])
+		return 0
+	case "log":
+		if len(args) != 3 {
+			fmt.Fprintln(c.deps.ErrOut, "usage: panel process log <project> <name>")
+			return 2
+		}
+		text, err := client.ProcessLog(args[1], args[2])
+		if err != nil {
+			return c.apiErr(err)
+		}
+		fmt.Fprint(c.deps.Out, text)
+		if !strings.HasSuffix(text, "\n") {
+			fmt.Fprintln(c.deps.Out)
+		}
+		return 0
+	case "run":
+		if len(args) < 3 {
+			fmt.Fprintln(c.deps.ErrOut, "usage: panel process run <project> <perintah...>")
+			return 2
+		}
+		out, code, err := client.RunOnce(args[1], strings.Join(args[2:], " "))
+		if err != nil {
+			return c.apiErr(err)
+		}
+		fmt.Fprintf(c.deps.Out, "[exit %d]\n%s", code, out)
+		if !strings.HasSuffix(out, "\n") {
+			fmt.Fprintln(c.deps.Out)
+		}
+		return 0
+	case "schedule-run":
+		if len(args) != 2 {
+			fmt.Fprintln(c.deps.ErrOut, "usage: panel process schedule-run <project>")
+			return 2
+		}
+		out, code, err := client.ScheduleRun(args[1])
+		if err != nil {
+			return c.apiErr(err)
+		}
+		fmt.Fprintf(c.deps.Out, "[exit %d]\n%s", code, out)
+		if !strings.HasSuffix(out, "\n") {
+			fmt.Fprintln(c.deps.Out)
+		}
+		return 0
+	default:
+		fmt.Fprintf(c.deps.ErrOut, "subcommand process tidak dikenal: %q\n", args[0])
+		return 2
+	}
+}
+
+// --- M5: login / logout / admin ------------------------------------
+
+// readPasswordLine reads one line from Stdin (prompt on ErrOut).
+// It reads byte-by-byte on purpose: a fresh buffered reader per
+// prompt would swallow the following line (the confirmation prompt
+// would then read EOF). The password echoes on the terminal — the
+// panel is a local console tool, and suppressing echo portably needs
+// a terminal library the project deliberately does not carry; the
+// password itself is never printed, logged, or stored anywhere
+// except its bcrypt hash.
+func (c *CLI) readPasswordLine(prompt string) (string, error) {
+	fmt.Fprint(c.deps.ErrOut, prompt)
+	in := c.deps.Stdin
+	if in == nil {
+		return "", fmt.Errorf("tidak ada input (stdin)")
+	}
+	var line []byte
+	buf := make([]byte, 1)
+	for {
+		n, err := in.Read(buf)
+		if n > 0 {
+			if buf[0] == '\n' {
+				break
 			}
-			fmt.Fprintf(c.deps.Out, "%-16s %-12s %-12s autostart=%v  %s\n", p.Name, def.Name, kind, def.Autostart, def.Command)
+			line = append(line, buf[0])
+		}
+		if err != nil {
+			if len(line) == 0 {
+				return "", fmt.Errorf("baca password: %w", err)
+			}
+			break
 		}
 	}
-	if !found {
-		fmt.Fprintln(c.deps.Out, "Belum ada definisi proses. Tambahkan dari dashboard (Edit proyek → Proses CLI) — template Laravel: queue & scheduler.")
+	return strings.TrimRight(string(line), "\r"), nil
+}
+
+func (c *CLI) runLogin() int {
+	client, code := c.apiClient()
+	if code != 0 {
+		return code
 	}
+	password, err := c.readPasswordLine("Password admin: ")
+	if err != nil {
+		fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+		return 1
+	}
+	if err := client.Login(password); err != nil {
+		return c.apiErr(err)
+	}
+	fmt.Fprintln(c.deps.Out, "Login berhasil — sesi tersimpan lokal (12 jam).")
+	return 0
+}
+
+func (c *CLI) runLogout() int {
+	client, code := c.apiClient()
+	if code != 0 {
+		return code
+	}
+	if err := client.Logout(); err != nil {
+		return c.apiErr(err)
+	}
+	fmt.Fprintln(c.deps.Out, "Logout — sesi lokal dihapus.")
+	return 0
+}
+
+func (c *CLI) runAdmin(args []string) int {
+	if len(args) != 1 || args[0] != "set-password" {
+		fmt.Fprintln(c.deps.ErrOut, "usage: panel admin set-password")
+		return 2
+	}
+	cfg, code := c.loadConfig()
+	if code != 0 {
+		return code
+	}
+	if c.deps.NewAuth == nil {
+		fmt.Fprintln(c.deps.ErrOut, "ERROR: layanan auth tidak terpasang (kesalahan wiring)")
+		return 1
+	}
+	first, err := c.readPasswordLine("Password admin baru: ")
+	if err != nil {
+		fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+		return 1
+	}
+	second, err := c.readPasswordLine("Ulangi password admin: ")
+	if err != nil {
+		fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+		return 1
+	}
+	if first != second {
+		fmt.Fprintln(c.deps.ErrOut, "ERROR: password tidak sama — ulangi dari awal.")
+		return 1
+	}
+	auth := c.deps.NewAuth(cfg)
+	if err := auth.SetPassword(first); err != nil {
+		fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+		return 1
+	}
+	if c.deps.NewAudit != nil {
+		_ = c.deps.NewAudit(cfg).Append(core.AuditEntry{Actor: "console", Action: "panel admin set-password", Detail: "ok"})
+	}
+	fmt.Fprintln(c.deps.Out, "Password admin disimpan (hash bcrypt). Sesi lama ikut dicabut — login ulang bila perlu.")
 	return 0
 }
