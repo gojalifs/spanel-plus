@@ -4,8 +4,9 @@ package buildinfo
 
 var (
 	// Version is the panel release version (M1 = first Go skeleton;
-	// 0.2.0-m1 adds the desktop WebView2 mode).
-	Version = "0.2.0-m1"
+	// 0.2.0-m1 adds the desktop WebView2 mode; 0.3.0-m2 adds the
+	// registry + ConfigGen + apply pipeline).
+	Version = "0.3.0-m2"
 	// Commit is the git commit the binary was built from, if known.
 	Commit = "dev"
 )

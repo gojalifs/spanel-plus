@@ -14,8 +14,10 @@ testing): [`docs/plan-fase-1.md`](docs/plan-fase-1.md)
 
 ## Status
 
-**Fase 1 — M0 GO (terkunci oleh max, 2026-10-24). M1 skeleton Go selesai
-dibangun, menunggu smoke test service di mesin Windows.**
+**Fase 1 — M0 GO (terkunci oleh max, 2026-10-24). M1 skeleton Go +
+mode desktop terbukti di mesin Windows. M2 (registry + ConfigGen +
+pipa apply) selesai dibangun, menunggu smoke test end-to-end di mesin
+Windows ([`docs/m2-smoke-test.md`](docs/m2-smoke-test.md)).**
 
 - M0 membuktikan desain di mesin uji: satu Apache 2.4.69 VS18 +
   `mod_fcgid` 2.3.10 + PHP 8.2.35 & 8.3.36 NTS x64 melayani beberapa
@@ -30,6 +32,15 @@ dibangun, menunggu smoke test service di mesin Windows.**
   terbukti dari screenshot mesin Windows max 2026-10-24 — sisa kriteria
   service dibuktikan lewat
   [`docs/m1-smoke-test.md`](docs/m1-smoke-test.md).
+- **M2 (v0.3.0-m2):** registry JSON (tulis atomik, validasi struktur +
+  lingkungan — registri invalid tidak pernah sampai ke disk/Apache),
+  ConfigGen deterministik per tipe proyek (golden-file tested, pola
+  persis config M0 yang terbukti), dan pipa apply yang aman:
+  snapshot → tulis config → `httpd -t` → restart → health check →
+  commit registry; gagal di tengah = rollback otomatis + restart ke
+  config lama, dengan pesan error yang menyebut tahapnya. Perintah:
+  `project add|set-php|enable|disable|list`, `php add|list|remove`,
+  `apache test|status|restart`.
 - **Mode desktop (v0.2.0-m1, keputusan max 2026-10-24):** panel dibuka
   sebagai aplikasi desktop, bukan tab browser — double-click
   `panel.exe` (atau `panel app`) membuka jendela WebView2 berisi UI
@@ -71,7 +82,18 @@ panel.exe doctor              # cek path Apache, httpd -v, mod_fcgid, port, data
 panel.exe serve               # server tanpa jendela; bila dimulai SCM, jalan sebagai Windows Service
 panel.exe service install     # Administrator: daftar service, start otomatis saat boot
 panel.exe service start|stop|status|uninstall
+panel.exe php add --version 8.2 --path C:\panel\php\8.2
+panel.exe php list|remove <versi>
+panel.exe project add --name app --url /app --path C:\htdocs\app --type laravel --php 8.2
+panel.exe project set-php app 8.3   # lewat pipa apply penuh (rollback otomatis bila gagal)
+panel.exe project enable|disable|list
+panel.exe apache test|status|restart
 ```
+
+Registry proyek & PHP tinggal di `data/registry.json`; config Apache
+hasil generate di `data/generated/apache/*.conf` (Apache diarahkan ke
+sana lewat satu baris `Include` — lihat `docs/m2-smoke-test.md`);
+snapshot pra-apply di `data/backups/<timestamp>/` (retensi 20).
 
 - UI/API tetap di `http://127.0.0.1:8888` (localhost) — `GET /` (UI
   ter-embed), `GET /healthz`, `GET /api/v1/status`,
@@ -88,7 +110,7 @@ Struktur paket (SOLID, Plan 10.1 — core tidak tahu HTTP/CLI/SCM):
 
 ```
 cmd/panel/          entrypoint: wiring dependensi saja
-internal/core/      logika inti + interface port (CommandRunner, FileProbe, PortProbe, Clock, ServiceController) + doctor
+internal/core/      logika inti + interface port (CommandRunner, FileProbe, PortProbe, Clock, ServiceController, FileStore) + doctor, registry, configgen, pipa apply
 internal/app/       komposisi aplikasi & lifecycle serve
 internal/httpapi/   handler HTTP tipis + web UI ter-embed
 internal/desktop/   launcher mode desktop (server in-process/reuse + jendela WebView2)
@@ -111,5 +133,6 @@ pertama ditolak GitHub (`403 Resource not accessible by integration`)
 karena instalasi GitHub App Muse belum punya izin *Workflows*.
 File-nya siap di staging Muse; masuk repo begitu izin itu diberikan
 (atau di-commit manual dari mesin Windows). Cakupan unit test saat
-M1: core/doctor 95%, desktop 96%, httpapi 91%, config 86%, logging 82%,
-cli 79%.
+saat ini: core 89% (configgen & health check 100%, validasi registry
+±100%, pipa apply 84% termasuk semua skenario rollback), desktop 96%,
+httpapi 91%, config 86%, logging 82%, cli 68%.

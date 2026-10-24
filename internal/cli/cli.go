@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 
 	"github.com/gojalifs/spanel-plus/internal/app"
 	"github.com/gojalifs/spanel-plus/internal/buildinfo"
@@ -39,6 +40,27 @@ type Deps struct {
 	// OpenDesktop runs the panel as a desktop app (native window);
 	// main wires it to internal/desktop.
 	OpenDesktop func(cfg config.Config, logger *slog.Logger) error
+	// Projects performs registry + apply operations (M2).
+	Projects ProjectOps
+	// Apache exposes managed-Apache diagnostics (M2).
+	Apache ApacheOps
+}
+
+// ProjectOps is the CLI's view of core.ProjectService.
+type ProjectOps interface {
+	List() (core.Registry, error)
+	AddPHPVersion(v core.PHPVersion) error
+	RemovePHPVersion(version string) error
+	AddProject(ctx context.Context, p core.Project) (core.ApplyResult, error)
+	SetPHP(ctx context.Context, name, version string) (core.ApplyResult, error)
+	SetEnabled(ctx context.Context, name string, enabled bool) (core.ApplyResult, error)
+}
+
+// ApacheOps is the CLI's view of the managed-Apache controls.
+type ApacheOps interface {
+	TestConfig(ctx context.Context) error
+	Status() (string, error)
+	Restart() error
 }
 
 // CLI is the command dispatcher.
@@ -63,6 +85,17 @@ Commands:
   service start         Start Windows Service panel [Administrator]
   service stop          Stop Windows Service panel [Administrator]
   service status        Tampilkan status Windows Service panel
+  project list          Daftar proyek di registry
+  project add --name N --url /path --path C:\folder --type laravel|php-native|static --php 8.2 [--public public] [--disabled]
+  project set-php N V   Ganti versi PHP proyek lewat pipa apply (backup -> httpd -t -> restart -> health check -> rollback bila gagal)
+  project enable N      Aktifkan proyek (apply)
+  project disable N     Nonaktifkan proyek (apply)
+  php list              Daftar versi PHP terdaftar
+  php add --version 8.2 --path C:\panel\php\8.2
+  php remove V          Hapus versi PHP (ditolak bila masih dipakai proyek)
+  apache test           Jalankan httpd -t pada config aktif
+  apache status         Status service Apache yang dikelola
+  apache restart        Restart service Apache yang dikelola
   version               Tampilkan versi panel
   help                  Tampilkan bantuan ini
 
@@ -92,6 +125,12 @@ func (c *CLI) Run(args []string) int {
 		return c.runServe()
 	case "service":
 		return c.runService(args[1:])
+	case "project":
+		return c.runProject(args[1:])
+	case "php":
+		return c.runPHP(args[1:])
+	case "apache":
+		return c.runApache(args[1:])
 	default:
 		fmt.Fprintf(c.deps.ErrOut, "perintah tidak dikenal: %q\n\n%s", args[0], usage)
 		return 2
@@ -212,6 +251,193 @@ func (c *CLI) runService(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// --- M2: project / php / apache commands -----------------------------
+
+func (c *CLI) printApplyResult(res core.ApplyResult) {
+	fmt.Fprintf(c.deps.Out, "Apply OK. Snapshot: %s\n", res.BackupDir)
+	fmt.Fprintf(c.deps.Out, "Config ditulis: %d file (%s)\n", len(res.FilesWritten), strings.Join(res.FilesWritten, ", "))
+	if len(res.HealthChecked) > 0 {
+		fmt.Fprintf(c.deps.Out, "Health check lulus: %s\n", strings.Join(res.HealthChecked, ", "))
+	}
+}
+
+func (c *CLI) applyError(err error) int {
+	fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+	return 1
+}
+
+func (c *CLI) runProject(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(c.deps.ErrOut, "usage: panel project list|add|set-php|enable|disable ...")
+		return 2
+	}
+	ctx := context.Background()
+	switch args[0] {
+	case "list":
+		reg, err := c.deps.Projects.List()
+		if err != nil {
+			return c.applyError(err)
+		}
+		if len(reg.Projects) == 0 {
+			fmt.Fprintln(c.deps.Out, "Belum ada proyek. Tambah dengan 'panel project add ...'.")
+			return 0
+		}
+		fmt.Fprintf(c.deps.Out, "%-16s %-18s %-10s %-6s %s\n", "NAME", "URL", "TYPE", "PHP", "ENABLED")
+		for _, p := range reg.SortedProjects() {
+			fmt.Fprintf(c.deps.Out, "%-16s %-18s %-10s %-6s %v\n", p.Name, p.URLPath, p.Type, p.PHPVersion, p.Enabled)
+		}
+		return 0
+	case "add":
+		_, flags, err := parseFlags(args[1:])
+		if err != nil {
+			fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+			return 2
+		}
+		p := core.Project{
+			Name:         flags["name"],
+			URLPath:      flags["url"],
+			FSPath:       flags["path"],
+			Type:         core.ProjectType(flags["type"]),
+			PublicSubdir: flags["public"],
+			PHPVersion:   flags["php"],
+			Enabled:      flags["disabled"] != "true",
+		}
+		res, err := c.deps.Projects.AddProject(ctx, p)
+		if err != nil {
+			return c.applyError(err)
+		}
+		c.printApplyResult(res)
+		return 0
+	case "set-php":
+		if len(args) != 3 {
+			fmt.Fprintln(c.deps.ErrOut, "usage: panel project set-php <name> <version>")
+			return 2
+		}
+		res, err := c.deps.Projects.SetPHP(ctx, args[1], args[2])
+		if err != nil {
+			return c.applyError(err)
+		}
+		c.printApplyResult(res)
+		return 0
+	case "enable", "disable":
+		if len(args) != 2 {
+			fmt.Fprintf(c.deps.ErrOut, "usage: panel project %s <name>\n", args[0])
+			return 2
+		}
+		res, err := c.deps.Projects.SetEnabled(ctx, args[1], args[0] == "enable")
+		if err != nil {
+			return c.applyError(err)
+		}
+		c.printApplyResult(res)
+		return 0
+	default:
+		fmt.Fprintf(c.deps.ErrOut, "subcommand project tidak dikenal: %q\n", args[0])
+		return 2
+	}
+}
+
+func (c *CLI) runPHP(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(c.deps.ErrOut, "usage: panel php list|add|remove ...")
+		return 2
+	}
+	switch args[0] {
+	case "list":
+		reg, err := c.deps.Projects.List()
+		if err != nil {
+			return c.applyError(err)
+		}
+		if len(reg.PHPVersions) == 0 {
+			fmt.Fprintln(c.deps.Out, "Belum ada versi PHP terdaftar. Tambah dengan 'panel php add --version 8.2 --path ...'.")
+			return 0
+		}
+		for _, v := range reg.PHPVersions {
+			fmt.Fprintf(c.deps.Out, "%-6s %s\n", v.Version, v.Path)
+		}
+		return 0
+	case "add":
+		_, flags, err := parseFlags(args[1:])
+		if err != nil {
+			fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+			return 2
+		}
+		v := core.PHPVersion{Version: flags["version"], Path: flags["path"]}
+		if err := c.deps.Projects.AddPHPVersion(v); err != nil {
+			return c.applyError(err)
+		}
+		fmt.Fprintf(c.deps.Out, "PHP %s terdaftar (%s).\n", v.Version, v.Path)
+		return 0
+	case "remove":
+		if len(args) != 2 {
+			fmt.Fprintln(c.deps.ErrOut, "usage: panel php remove <version>")
+			return 2
+		}
+		if err := c.deps.Projects.RemovePHPVersion(args[1]); err != nil {
+			return c.applyError(err)
+		}
+		fmt.Fprintf(c.deps.Out, "PHP %s terhapus dari registry.\n", args[1])
+		return 0
+	default:
+		fmt.Fprintf(c.deps.ErrOut, "subcommand php tidak dikenal: %q\n", args[0])
+		return 2
+	}
+}
+
+func (c *CLI) runApache(args []string) int {
+	if len(args) != 1 {
+		fmt.Fprintln(c.deps.ErrOut, "usage: panel apache test|status|restart")
+		return 2
+	}
+	switch args[0] {
+	case "test":
+		if err := c.deps.Apache.TestConfig(context.Background()); err != nil {
+			return c.applyError(err)
+		}
+		fmt.Fprintln(c.deps.Out, "httpd -t: Syntax OK")
+		return 0
+	case "status":
+		status, err := c.deps.Apache.Status()
+		if err != nil {
+			return c.applyError(err)
+		}
+		fmt.Fprintf(c.deps.Out, "Apache service: %s\n", status)
+		return 0
+	case "restart":
+		if err := c.deps.Apache.Restart(); err != nil {
+			return c.applyError(err)
+		}
+		fmt.Fprintln(c.deps.Out, "Apache service direstart.")
+		return 0
+	default:
+		fmt.Fprintf(c.deps.ErrOut, "subcommand apache tidak dikenal: %q\n", args[0])
+		return 2
+	}
+}
+
+// parseFlags parses `--key value` pairs plus the boolean `--disabled`.
+// Anything else is returned as a positional argument.
+func parseFlags(args []string) (pos []string, flags map[string]string, err error) {
+	flags = map[string]string{}
+	for i := 0; i < len(args); i++ {
+		tok := args[i]
+		if !strings.HasPrefix(tok, "--") {
+			pos = append(pos, tok)
+			continue
+		}
+		key := strings.TrimPrefix(tok, "--")
+		if key == "disabled" {
+			flags[key] = "true"
+			continue
+		}
+		if i+1 >= len(args) {
+			return nil, nil, fmt.Errorf("flag --%s butuh nilai", key)
+		}
+		flags[key] = args[i+1]
+		i++
+	}
+	return pos, flags, nil
 }
 
 func discardLogger() *slog.Logger {

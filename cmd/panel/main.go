@@ -46,6 +46,51 @@ func run() int {
 	}
 	clock := platform.RealClock{}
 
+	// M2 wiring: registry + apply pipeline. Built from the same
+	// config the commands load; when the config is broken, commands
+	// get the config error itself instead of a half-wired pipeline.
+	var projectOps cli.ProjectOps
+	var apacheOps cli.ApacheOps
+	if wireCfg, cfgErr := config.Load(baseDir); cfgErr == nil {
+		apacheHome, _ := core.ResolveApacheHome(platform.OSFileProbe{}, wireCfg.ApacheHome, config.DefaultApacheCandidates())
+		fileStore := platform.OSFileStore{}
+		registrySvc := &core.RegistryService{
+			Store: platform.NewJSONRegistryStore(filepath.Join(wireCfg.DataDir, "registry.json")),
+			Files: platform.OSFileProbe{},
+			Clock: clock,
+			Defaults: core.Settings{
+				ApacheHome:    apacheHome,
+				ApacheService: wireCfg.ApacheService,
+				DocumentRoot:  wireCfg.DocumentRoot,
+				PanelPort:     wireCfg.Port,
+			},
+		}
+		manager := &core.ApacheManager{
+			Runner:  platform.ExecRunner{},
+			Files:   fileStore,
+			Service: platform.NewNamedServiceController(),
+			Health:  platform.HTTPHealthChecker{},
+			Clock:   clock,
+			Sleep:   time.Sleep,
+			Cfg: core.ApplyConfig{
+				ApacheHome:     apacheHome,
+				ApacheService:  wireCfg.ApacheService,
+				RegistryPath:   filepath.Join(wireCfg.DataDir, "registry.json"),
+				GeneratedDir:   filepath.Join(wireCfg.DataDir, "generated", "apache"),
+				BackupsDir:     filepath.Join(wireCfg.DataDir, "backups"),
+				HealthBaseURL:  "http://127.0.0.1",
+				Retention:      20,
+				HealthAttempts: 10,
+				HealthInterval: 500 * time.Millisecond,
+			},
+		}
+		projectOps = &core.ProjectService{Registry: registrySvc, Manager: manager}
+		apacheOps = manager
+	} else {
+		broken := &brokenOps{err: cfgErr}
+		projectOps, apacheOps = broken, broken
+	}
+
 	deps := cli.Deps{
 		Out:    os.Stdout,
 		ErrOut: os.Stderr,
@@ -56,6 +101,8 @@ func run() int {
 		Doctor:    doctor,
 		Service:   platform.NewServiceController(),
 		Clock:     clock,
+		Projects:  projectOps,
+		Apache:    apacheOps,
 		Serve: func(cfg config.Config, logger *slog.Logger) error {
 			application := app.New(cfg, logger, doctor, clock)
 			handler := httpapi.NewHandler(application, logger)
@@ -99,3 +146,25 @@ func run() int {
 	}
 	return cli.New(deps).Run(os.Args[1:])
 }
+
+// brokenOps stands in for the M2 pipeline when panel.json cannot be
+// loaded: every operation returns the config error verbatim.
+type brokenOps struct{ err error }
+
+func (b *brokenOps) List() (core.Registry, error) { return core.Registry{}, b.err }
+func (b *brokenOps) AddPHPVersion(core.PHPVersion) error {
+	return b.err
+}
+func (b *brokenOps) RemovePHPVersion(string) error { return b.err }
+func (b *brokenOps) AddProject(context.Context, core.Project) (core.ApplyResult, error) {
+	return core.ApplyResult{}, b.err
+}
+func (b *brokenOps) SetPHP(context.Context, string, string) (core.ApplyResult, error) {
+	return core.ApplyResult{}, b.err
+}
+func (b *brokenOps) SetEnabled(context.Context, string, bool) (core.ApplyResult, error) {
+	return core.ApplyResult{}, b.err
+}
+func (b *brokenOps) TestConfig(context.Context) error { return b.err }
+func (b *brokenOps) Status() (string, error)          { return "", b.err }
+func (b *brokenOps) Restart() error                   { return b.err }

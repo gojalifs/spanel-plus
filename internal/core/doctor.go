@@ -85,24 +85,32 @@ func (d Doctor) Run(ctx context.Context, in DoctorInput) Report {
 	return rep
 }
 
-func (d Doctor) resolveApacheHome(in DoctorInput) (string, Check) {
-	if in.ApacheHome != "" {
-		if d.Files.IsDir(in.ApacheHome) {
-			return in.ApacheHome, Check{"apache-home", StatusPass,
-				fmt.Sprintf("%s (from config)", in.ApacheHome)}
+// ResolveApacheHome determines the managed Apache installation:
+// the configured home when set, else the first existing discovery
+// candidate. Shared by Doctor and by callers that need the concrete
+// home (e.g. wiring the apply pipeline in main).
+func ResolveApacheHome(files FileProbe, configured string, candidates []string) (string, Check) {
+	if configured != "" {
+		if files.IsDir(configured) {
+			return configured, Check{"apache-home", StatusPass,
+				fmt.Sprintf("%s (from config)", configured)}
 		}
 		return "", Check{"apache-home", StatusFail,
-			fmt.Sprintf("configured apache_home %s does not exist — fix panel.json or install Apache there", in.ApacheHome)}
+			fmt.Sprintf("configured apache_home %s does not exist — fix panel.json or install Apache there", configured)}
 	}
-	for _, cand := range in.Candidates {
-		if d.Files.IsDir(cand) {
+	for _, cand := range candidates {
+		if files.IsDir(cand) {
 			return cand, Check{"apache-home", StatusPass,
 				fmt.Sprintf("%s (auto-discovered)", cand)}
 		}
 	}
 	return "", Check{"apache-home", StatusFail,
 		fmt.Sprintf("no Apache installation found (looked in: %s) — install Apache or set apache_home in panel.json",
-			strings.Join(in.Candidates, ", "))}
+			strings.Join(candidates, ", "))}
+}
+
+func (d Doctor) resolveApacheHome(in DoctorInput) (string, Check) {
+	return ResolveApacheHome(d.Files, in.ApacheHome, in.Candidates)
 }
 
 var apacheVersionRe = regexp.MustCompile(`Apache/(\d+\.\d+\.\d+)`)

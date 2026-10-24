@@ -35,6 +35,12 @@ type Config struct {
 	ApacheHome string `json:"apache_home"`
 	// ApacheService is the Windows service name of the managed Apache.
 	ApacheService string `json:"apache_service"`
+	// DocumentRoot is the managed Apache's document root (the folder
+	// project URL paths naturally map onto). Used by ConfigGen to
+	// decide whether a project needs an explicit Alias. May be empty
+	// (then every project gets an Alias — always correct, just less
+	// minimal).
+	DocumentRoot string `json:"document_root"`
 }
 
 // DefaultApacheCandidates are probed, in order, when ApacheHome is empty.
