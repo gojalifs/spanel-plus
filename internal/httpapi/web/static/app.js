@@ -58,6 +58,7 @@ async function loadAll() {
     registry = await api('GET', '/api/v1/projects');
     renderPHP();
     renderProjects();
+    loadProcesses();
   } catch (e) {
     toast('Gagal memuat data: ' + e.message, false);
   }
@@ -288,6 +289,8 @@ function fillForm(p) {
   $('pf-public').value = p.public_subdir || '';
   $('pf-php').value = p.php_version || '';
   $('pf-enabled').checked = p.enabled;
+  $('pf-processes').innerHTML = '';
+  for (const def of (p.cli_processes || [])) addProcessRow(def);
   $('project-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
@@ -298,6 +301,7 @@ function resetForm() {
   $('pf-name').disabled = false;
   $('project-form').reset();
   $('pf-enabled').checked = true;
+  $('pf-processes').innerHTML = '';
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -323,6 +327,7 @@ document.addEventListener('DOMContentLoaded', () => {
       public_subdir: $('pf-public').value,
       php_version: $('pf-php').value,
       enabled: $('pf-enabled').checked,
+      cli_processes: collectProcesses(),
     };
     try {
       if (editingName) {
@@ -358,6 +363,23 @@ document.addEventListener('DOMContentLoaded', () => {
     loadAll();
   });
 
+  $('pf-proc-add').addEventListener('click', () => addProcessRow());
+  $('pf-proc-queue').addEventListener('click', () => addProcessRow({ name: 'queue', command: 'artisan queue:work', kind: '', autostart: true, restart: 'on-failure' }));
+  $('pf-proc-sched').addEventListener('click', () => addProcessRow({ name: 'scheduler', command: '', kind: 'schedule:run', autostart: true }));
+  $('log-close').addEventListener('click', () => { $('log-panel').hidden = true; });
+  $('run-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const out = $('run-output');
+    out.hidden = false;
+    out.textContent = 'Menjalankan…';
+    try {
+      const res = await api('POST', '/api/v1/projects/' + encodeURIComponent($('run-project').value) + '/run', { command: $('run-command').value });
+      out.textContent = '[exit ' + res.exit_code + ']\n' + (res.output || '(tanpa output)');
+    } catch (e) {
+      out.textContent = 'Gagal: ' + e.message;
+    }
+  });
+
   $('btn-apache-restart').addEventListener('click', async () => {
     if (!confirm('Restart service Apache sekarang? Semua proyek berhenti sesaat.')) return;
     try {
@@ -379,3 +401,145 @@ document.addEventListener('DOMContentLoaded', () => {
 
   loadAll();
 });
+
+// ---------- M4: supervisor processes ----------
+
+async function loadProcesses() {
+  const tbody = $('process-table').querySelector('tbody');
+  try {
+    const data = await api('GET', '/api/v1/processes');
+    tbody.innerHTML = '';
+    if (!data.processes.length) {
+      const tr = el('tr');
+      const td = el('td', 'Belum ada definisi proses. Tambahkan lewat Edit proyek → Proses CLI (ada template Laravel).', 'muted');
+      td.colSpan = 7;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+    for (const st of data.processes) {
+      const tr = el('tr');
+      tr.appendChild(el('td', st.project, 'mono'));
+      tr.appendChild(el('td', st.name, 'mono'));
+      tr.appendChild(el('td', st.kind === 'schedule:run' ? 'artisan schedule:run (tiap menit)' : (st.command || ''), 'mono'));
+      const stateTd = el('td');
+      const chip = el('span', st.state, 'state-chip state-' + st.state);
+      stateTd.appendChild(chip);
+      if (st.kind === 'schedule:run' && st.last_run_at && !st.last_run_at.startsWith('0001')) {
+        stateTd.appendChild(el('div', 'terakhir: ' + st.last_run_at, 'muted'));
+      }
+      tr.appendChild(stateTd);
+      tr.appendChild(el('td', st.pid ? String(st.pid) : '—'));
+      tr.appendChild(el('td', String(st.restarts || 0)));
+      const actions = el('td');
+      if (st.kind === 'schedule:run') {
+        actions.append(
+          button('Jalankan sekarang', () => scheduleRunNow(st.project)),
+          button('Log', () => showProcessLog(st.project, 'scheduler')),
+        );
+      } else {
+        actions.append(
+          button('Start', () => processAction(st.project, st.name, 'start')),
+          button('Stop', () => processAction(st.project, st.name, 'stop')),
+          button('Restart', () => processAction(st.project, st.name, 'restart')),
+          button('Log', () => showProcessLog(st.project, st.name)),
+        );
+      }
+      tr.appendChild(actions);
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    tbody.innerHTML = '';
+    const tr = el('tr');
+    const td = el('td', 'Gagal memuat proses: ' + e.message, 'fail');
+    td.colSpan = 7;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+  const sel = $('run-project');
+  sel.innerHTML = '';
+  for (const p of registry.projects) {
+    const o = el('option', p.name);
+    o.value = p.name;
+    sel.appendChild(o);
+  }
+}
+
+async function processAction(project, name, action) {
+  try {
+    await api('POST', '/api/v1/projects/' + encodeURIComponent(project) + '/processes/' + encodeURIComponent(name) + '/' + action);
+    toast('Proses ' + project + '/' + name + ': ' + action + ' ok.');
+    loadProcesses();
+  } catch (e) {
+    toast(e.message, false);
+  }
+}
+
+async function scheduleRunNow(project) {
+  try {
+    const res = await api('POST', '/api/v1/projects/' + encodeURIComponent(project) + '/schedule-run');
+    toast('schedule:run ' + project + ' selesai (exit ' + res.exit_code + ').');
+    loadProcesses();
+  } catch (e) {
+    toast(e.message, false);
+  }
+}
+
+async function showProcessLog(project, name) {
+  try {
+    const data = await api('GET', '/api/v1/projects/' + encodeURIComponent(project) + '/processes/' + encodeURIComponent(name) + '/log');
+    $('log-title').textContent = project + '/' + name;
+    $('log-body').textContent = data.log || '(log masih kosong)';
+    $('log-panel').hidden = false;
+    $('log-panel').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch (e) {
+    toast(e.message, false);
+  }
+}
+
+// ---------- process definition editor (in the project form) ----------
+
+function addProcessRow(def) {
+  def = def || { name: '', command: '', kind: '', autostart: true, restart: 'on-failure' };
+  const row = el('div', undefined, 'proc-row');
+  const name = document.createElement('input');
+  name.placeholder = 'nama (queue)';
+  name.value = def.name || '';
+  name.className = 'pr-name';
+  const cmd = document.createElement('input');
+  cmd.placeholder = 'perintah (artisan queue:work)';
+  cmd.value = def.command || '';
+  cmd.className = 'pr-command';
+  const kind = el('select');
+  const k1 = el('option', 'Proses panjang'); k1.value = '';
+  const k2 = el('option', 'Scheduler (schedule:run)'); k2.value = 'schedule:run';
+  kind.append(k1, k2);
+  kind.value = def.kind || '';
+  kind.className = 'pr-kind';
+  const auto = document.createElement('input');
+  auto.type = 'checkbox';
+  auto.checked = !!def.autostart;
+  auto.className = 'pr-autostart';
+  const autoLabel = el('label', ' autostart');
+  autoLabel.prepend(auto);
+  const rm = button('Hapus', () => row.remove());
+  row.append(name, cmd, kind, autoLabel, rm);
+  $('pf-processes').appendChild(row);
+}
+
+function collectProcesses() {
+  const out = [];
+  for (const row of $('pf-processes').querySelectorAll('.proc-row')) {
+    const name = row.querySelector('.pr-name').value.trim();
+    if (!name) continue;
+    const kind = row.querySelector('.pr-kind').value;
+    out.push({
+      name: name,
+      command: kind === 'schedule:run' ? '' : row.querySelector('.pr-command').value.trim(),
+      kind: kind,
+      autostart: row.querySelector('.pr-autostart').checked,
+      restart: 'on-failure',
+    });
+  }
+  return out;
+}

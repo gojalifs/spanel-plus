@@ -17,4 +17,6 @@ var (
 	ErrPHPVersionExists = errors.New("php version already registered")
 	// ErrPHPVersionInUse marks removing a PHP version projects use.
 	ErrPHPVersionInUse = errors.New("php version still in use")
+	// ErrProcessNotFound marks an unknown CLI process definition.
+	ErrProcessNotFound = errors.New("cli process not found")
 )

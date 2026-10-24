@@ -44,12 +44,26 @@ const (
 
 // CLIProcess is a per-project long-running CLI definition (queue,
 // scheduler, artisan commands). Stored from M2; executed by the
-// Supervisor arriving in M4 (Plan F5).
+// Supervisor and Scheduler since M4 (Plan F5).
 type CLIProcess struct {
 	Name      string `json:"name"`
 	Command   string `json:"command"`
 	Autostart bool   `json:"autostart"`
+	// Kind distinguishes a long-running process ("", default) from
+	// the scheduler hook ("schedule:run"): the latter is not a
+	// process at all — the panel's Scheduler runs
+	// `php artisan schedule:run` every minute for it.
+	Kind string `json:"kind,omitempty"`
+	// Restart is the supervisor policy for long-running processes:
+	// "" or "on-failure" (default), "always", "never".
+	Restart string `json:"restart,omitempty"`
 }
+
+// Process kinds for CLIProcess.Kind.
+const (
+	ProcessKindLongRunning = ""
+	ProcessKindScheduleRun = "schedule:run"
+)
 
 // Project is one managed application, routed by URL path (Plan D3).
 type Project struct {
@@ -211,8 +225,24 @@ func validateProjectStructure(p Project, phpSeen map[string]bool) error {
 	}
 	procSeen := map[string]bool{}
 	for _, proc := range p.CLIProcesses {
-		if proc.Name == "" || proc.Command == "" {
-			return fmt.Errorf("registry: project %s has a cli process with empty name/command", p.Name)
+		if proc.Name == "" {
+			return fmt.Errorf("registry: project %s has a cli process with empty name", p.Name)
+		}
+		switch proc.Kind {
+		case ProcessKindLongRunning:
+			if proc.Command == "" {
+				return fmt.Errorf("registry: project %s cli process %q has an empty command", p.Name, proc.Name)
+			}
+		case ProcessKindScheduleRun:
+			// Command is implied (artisan schedule:run); a stored
+			// command is ignored for this kind.
+		default:
+			return fmt.Errorf("registry: project %s cli process %q has unknown kind %q", p.Name, proc.Name, proc.Kind)
+		}
+		switch proc.Restart {
+		case "", "on-failure", "always", "never":
+		default:
+			return fmt.Errorf("registry: project %s cli process %q has unknown restart policy %q", p.Name, proc.Name, proc.Restart)
 		}
 		if procSeen[proc.Name] {
 			return fmt.Errorf("registry: project %s has duplicate cli process %q", p.Name, proc.Name)

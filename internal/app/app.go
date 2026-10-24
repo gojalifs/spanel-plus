@@ -26,10 +26,30 @@ type Application struct {
 	clock   core.Clock
 	started time.Time
 
-	projects ProjectOps
-	php      PHPOps
-	apache   ApacheOps
+	projects  ProjectOps
+	php       PHPOps
+	apache    ApacheOps
+	processes ProcessOps
+	runtime   Runtime
+	logFiles  core.FileStore
+	logDir    string
 }
+
+// AttachRuntime wires the supervisor/scheduler runtime and the
+// process service the API controls (M4). The runtime starts and
+// stops with Application.Run.
+func (a *Application) AttachRuntime(rt Runtime, processes ProcessOps, logFiles core.FileStore, logDir string) {
+	a.runtime, a.processes, a.logFiles, a.logDir = rt, processes, logFiles, logDir
+}
+
+// Processes returns the attached process service, or nil.
+func (a *Application) Processes() ProcessOps { return a.processes }
+
+// LogFiles returns the store used to tail process logs, or nil.
+func (a *Application) LogFiles() core.FileStore { return a.logFiles }
+
+// ProcessLogDir returns the panel's per-project log root.
+func (a *Application) ProcessLogDir() string { return a.logDir }
 
 // AttachServices wires the state-changing services (registry, PHP
 // manager, Apache manager) into the application so the HTTP API can
@@ -109,8 +129,21 @@ func (a *Application) DoctorInput() core.DoctorInput {
 
 // Run serves the HTTP API/UI until ctx is cancelled, then shuts down
 // gracefully. A bind failure returns immediately (fail loud) instead of
-// announcing a panel that is not actually listening.
+// announcing a panel that is not actually listening. The M4 runtime
+// (supervisor + scheduler) runs alongside and is stopped first, so no
+// managed process outlives the panel.
 func (a *Application) Run(ctx context.Context, handler http.Handler) error {
+	if a.runtime.Supervisor != nil {
+		if err := a.runtime.Supervisor.Start(ctx); err != nil {
+			// Not fatal: the panel must stay reachable to fix the
+			// registry; the failure is loud in the log.
+			a.logger.Error("supervisor start failed", "err", err)
+		}
+		defer a.runtime.Supervisor.StopAll()
+	}
+	if a.runtime.Scheduler != nil {
+		go a.runtime.Scheduler.Run(ctx)
+	}
 	addr := fmt.Sprintf(":%d", a.cfg.Port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

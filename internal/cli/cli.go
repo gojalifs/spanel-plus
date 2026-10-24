@@ -103,6 +103,7 @@ Commands:
   php list              Daftar versi PHP terdaftar
   php add --path C:\panel\php\8.2 [--version 8.2]   Daftarkan PHP; tanpa --version, versi terdeteksi dari php.exe (build TS ditolak)
   php remove V          Hapus versi PHP (ditolak bila masih dipakai proyek)
+  process list          Daftar definisi proses CLI per proyek (start/stop & log dari dashboard — supervisor tinggal di panel yang sedang jalan)
   apache test           Jalankan httpd -t pada config aktif
   apache status         Status service Apache yang dikelola
   apache restart        Restart service Apache yang dikelola
@@ -141,6 +142,8 @@ func (c *CLI) Run(args []string) int {
 		return c.runPHP(args[1:])
 	case "apache":
 		return c.runApache(args[1:])
+	case "process":
+		return c.runProcess(args[1:])
 	default:
 		fmt.Fprintf(c.deps.ErrOut, "perintah tidak dikenal: %q\n\n%s", args[0], usage)
 		return 2
@@ -474,4 +477,35 @@ func parseFlags(args []string) (pos []string, flags map[string]string, err error
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// runProcess implements `panel process list`: the definitions from
+// the registry. Runtime control (start/stop/log) lives in the
+// running panel's supervisor and is driven from the dashboard/API —
+// a separate CLI process cannot supervise another process's
+// children; full CLI→API parity arrives in M5 (Plan Bagian 11).
+func (c *CLI) runProcess(args []string) int {
+	if len(args) != 1 || args[0] != "list" {
+		fmt.Fprintln(c.deps.ErrOut, "usage: panel process list")
+		return 2
+	}
+	reg, err := c.deps.Projects.List()
+	if err != nil {
+		return c.applyError(err)
+	}
+	found := false
+	for _, p := range reg.SortedProjects() {
+		for _, def := range p.CLIProcesses {
+			found = true
+			kind := def.Kind
+			if kind == "" {
+				kind = "long-running"
+			}
+			fmt.Fprintf(c.deps.Out, "%-16s %-12s %-12s autostart=%v  %s\n", p.Name, def.Name, kind, def.Autostart, def.Command)
+		}
+	}
+	if !found {
+		fmt.Fprintln(c.deps.Out, "Belum ada definisi proses. Tambahkan dari dashboard (Edit proyek → Proses CLI) — template Laravel: queue & scheduler.")
+	}
+	return 0
 }

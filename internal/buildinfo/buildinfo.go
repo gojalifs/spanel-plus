@@ -6,8 +6,9 @@ var (
 	// Version is the panel release version (M1 = first Go skeleton;
 	// 0.2.0-m1 adds the desktop WebView2 mode; 0.3.0-m2 adds the
 	// registry + ConfigGen + apply pipeline; 0.4.0-m3 adds the PHP
-	// manager, project CRUD API and the dashboard UI).
-	Version = "0.4.0-m3"
+	// manager, project CRUD API and the dashboard UI; 0.5.0-m4 adds
+	// the process Supervisor and the schedule:run Scheduler).
+	Version = "0.5.0-m4"
 	// Commit is the git commit the binary was built from, if known.
 	Commit = "dev"
 )

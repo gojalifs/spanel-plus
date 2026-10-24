@@ -54,6 +54,8 @@ func run() int {
 	var projectsSvc *core.ProjectService
 	var phpMgr *core.PHPManager
 	var apacheMgr *core.ApacheManager
+	var supervisor *core.Supervisor
+	var scheduler *core.Scheduler
 	if wireCfg, cfgErr := config.Load(baseDir); cfgErr == nil {
 		apacheHome, _ := core.ResolveApacheHome(platform.OSFileProbe{}, wireCfg.ApacheHome, config.DefaultApacheCandidates())
 		fileStore := platform.OSFileStore{}
@@ -88,6 +90,14 @@ func run() int {
 			},
 		}
 		projectsSvc = &core.ProjectService{Registry: registrySvc, Manager: manager, Files: fileStore}
+		supervisor = &core.Supervisor{
+			Registry: registrySvc,
+			Starter:  platform.ExecProcessStarter{},
+			OneShot:  platform.ExecOneShotRunner{},
+			Clock:    clock,
+			LogDir:   filepath.Join(wireCfg.DataDir, "projects"),
+		}
+		scheduler = &core.Scheduler{Supervisor: supervisor, Registry: registrySvc}
 		phpMgr = &core.PHPManager{
 			Registry:    registrySvc,
 			Prober:      platform.ExecPHPProber{Runner: platform.ExecRunner{}},
@@ -119,6 +129,9 @@ func run() int {
 			application := app.New(cfg, logger, doctor, clock)
 			if projectsSvc != nil {
 				application.AttachServices(projectsSvc, phpMgr, apacheMgr)
+				supervisor.Log = logger
+				scheduler.Log = logger
+				application.AttachRuntime(app.Runtime{Supervisor: supervisor, Scheduler: scheduler}, supervisor, platform.OSFileStore{}, supervisor.LogDir)
 			}
 			handler := httpapi.NewHandler(application, logger)
 			return platform.RunPanel(buildinfo.ServiceName, func(ctx context.Context) error {
@@ -129,6 +142,9 @@ func run() int {
 			application := app.New(cfg, logger, doctor, clock)
 			if projectsSvc != nil {
 				application.AttachServices(projectsSvc, phpMgr, apacheMgr)
+				supervisor.Log = logger
+				scheduler.Log = logger
+				application.AttachRuntime(app.Runtime{Supervisor: supervisor, Scheduler: scheduler}, supervisor, platform.OSFileStore{}, supervisor.LogDir)
 			}
 			handler := httpapi.NewHandler(application, logger)
 			base := fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)

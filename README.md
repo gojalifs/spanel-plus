@@ -16,10 +16,11 @@ testing): [`docs/plan-fase-1.md`](docs/plan-fase-1.md)
 
 **Fase 1 — M0 GO (terkunci oleh max, 2026-10-24). M1 skeleton Go +
 mode desktop terbukti di mesin Windows. M2 (registry + ConfigGen +
-pipa apply) dan M3 (PHP manager + CRUD UI) selesai dibangun; smoke
-test Windows untuk keduanya menunggu giliran max
+pipa apply), M3 (PHP manager + CRUD UI), dan M4 (Supervisor &
+Scheduler) selesai dibangun; smoke test Windows menunggu giliran max
 ([`docs/m2-smoke-test.md`](docs/m2-smoke-test.md),
-[`docs/m3-smoke-test.md`](docs/m3-smoke-test.md)).**
+[`docs/m3-smoke-test.md`](docs/m3-smoke-test.md),
+[`docs/m4-smoke-test.md`](docs/m4-smoke-test.md)).**
 
 - M0 membuktikan desain di mesin uji: satu Apache 2.4.69 VS18 +
   `mod_fcgid` 2.3.10 + PHP 8.2.35 & 8.3.36 NTS x64 melayani beberapa
@@ -34,6 +35,16 @@ test Windows untuk keduanya menunggu giliran max
   terbukti dari screenshot mesin Windows max 2026-10-24 — sisa kriteria
   service dibuktikan lewat
   [`docs/m1-smoke-test.md`](docs/m1-smoke-test.md).
+- **M4 (v0.5.0-m4):** Supervisor proses CLI per proyek (F5) —
+  definisi proses di registry (template Laravel: queue & scheduler),
+  autostart saat panel jalan, auto-restart dengan backoff eksponensial
+  (1s → maks 30s, menyerah sesudah 5x gagal beruntun & tercatat),
+  kebijakan restart on-failure/always/never, log per proses di
+  `data/projects/<proyek>/<nama>.log` (dengan marker start/exit dari
+  panel). Scheduler mengeksekusi `php artisan schedule:run` tiap
+  menit memakai php.exe milik proyek — pengganti Task Scheduler.
+  Runner perintah sekali jalan dari dashboard. Semua perintah
+  artisan/*.php selalu memakai php.exe versi proyek itu sendiri.
 - **M3 (v0.4.0-m3):** dashboard UI beneran di jendela desktop —
   kartu ringkasan, tabel proyek & versi PHP, form tambah/edit proyek.
   PHP Manager (F2): daftarkan PHP dari folder → versi terdeteksi dari
@@ -100,6 +111,7 @@ panel.exe php list|remove <versi>
 panel.exe project add --name app --url /app --path C:\htdocs\app --type laravel --php 8.2
 panel.exe project set-php app 8.3   # lewat pipa apply penuh (rollback otomatis bila gagal)
 panel.exe project enable|disable|list|remove app
+panel.exe process list        # definisi proses per proyek (kontrol runtime dari dashboard)
 panel.exe apache test|status|restart
 ```
 
@@ -146,7 +158,8 @@ pertama ditolak GitHub (`403 Resource not accessible by integration`)
 karena instalasi GitHub App Muse belum punya izin *Workflows*.
 File-nya siap di staging Muse; masuk repo begitu izin itu diberikan
 (atau di-commit manual dari mesin Windows). Cakupan unit test saat
-saat ini: core 85% (configgen & health check 100%, validasi registry
-±100%, pipa apply 84% termasuk semua skenario rollback, PHP manager &
-scanner peringatan teruji), desktop 96%, httpapi 71%, config 86%,
-logging 82%, cli 69%.
+saat ini: core 82% (configgen & health check 100%, pipa apply 84%
+termasuk semua skenario rollback, supervisor crash-loop/stop dan
+scheduler teruji), desktop 96%, httpapi 67%, platform 43% (termasuk
+test proses beneran: start/kill/log), config 86%, logging 82%,
+cli 63%.

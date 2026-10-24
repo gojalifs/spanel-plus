@@ -87,6 +87,9 @@ func apiHandler(t *testing.T) (http.Handler, *fakeProjects) {
 		Projects:    []core.Project{{Name: "app", URLPath: "/app", Type: core.ProjectLaravel, PHPVersion: "8.2", Enabled: true}},
 	}}
 	application.AttachServices(fp, &fakePHP{}, &fakeApache{})
+	application.AttachRuntime(app.Runtime{}, &fakeProcesses{runOut: "migrated"}, &mapFiles{data: map[string][]byte{
+		core.ProcessLogPath("/logs", "app", "queue"): []byte("log-baris-1\nlog-baris-2\n"),
+	}}, "/logs")
 	return NewHandler(application, slog.New(slog.NewTextHandler(io.Discard, nil))), fp
 }
 
@@ -198,5 +201,72 @@ func TestStateEndpoints503WithoutServices(t *testing.T) {
 	// Status/doctor keep working.
 	if rec := call(t, h, http.MethodGet, "/api/v1/status", ""); rec.Code != 200 {
 		t.Errorf("status must stay 200, got %d", rec.Code)
+	}
+}
+
+// --- M4 fakes & tests ---
+
+type fakeProcesses struct {
+	started [2]string
+	runOut  string
+	err     error
+}
+
+func (f *fakeProcesses) Statuses() ([]core.ProcessStatus, error) {
+	return []core.ProcessStatus{{Project: "app", Name: "queue", Command: "artisan queue:work", State: core.StateRunning, PID: 99}}, f.err
+}
+func (f *fakeProcesses) StartProcess(p, n string) error {
+	f.started = [2]string{p, n}
+	return f.err
+}
+func (f *fakeProcesses) StopProcess(_, _ string) error    { return f.err }
+func (f *fakeProcesses) RestartProcess(_, _ string) error { return f.err }
+func (f *fakeProcesses) RunOnce(_ context.Context, _ string, _ string) (string, int, error) {
+	return f.runOut, 0, f.err
+}
+func (f *fakeProcesses) RunScheduleOnce(_ context.Context, _ string) (string, int, error) {
+	return "sched-ok", 0, f.err
+}
+
+type mapFiles struct{ data map[string][]byte }
+
+func (m *mapFiles) Exists(p string) bool           { _, ok := m.data[p]; return ok }
+func (m *mapFiles) IsDir(string) bool              { return false }
+func (m *mapFiles) EnsureWritableDir(string) error { return nil }
+func (m *mapFiles) ReadFile(p string) ([]byte, error) {
+	b, ok := m.data[p]
+	if !ok {
+		return nil, fmt.Errorf("not found")
+	}
+	return b, nil
+}
+func (m *mapFiles) WriteFile(p string, b []byte) error       { m.data[p] = b; return nil }
+func (m *mapFiles) WriteFileAtomic(p string, b []byte) error { m.data[p] = b; return nil }
+func (m *mapFiles) MkdirAll(string) error                    { return nil }
+func (m *mapFiles) Remove(p string) error                    { delete(m.data, p); return nil }
+func (m *mapFiles) RemoveAll(string) error                   { return nil }
+func (m *mapFiles) ListNames(string) ([]string, error)       { return nil, nil }
+
+func TestProcessEndpoints(t *testing.T) {
+	h, _ := apiHandler(t)
+	rec := call(t, h, http.MethodGet, "/api/v1/processes", "")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"queue"`) {
+		t.Fatalf("processes = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = call(t, h, http.MethodPost, "/api/v1/projects/app/processes/queue/start", "")
+	if rec.Code != 200 {
+		t.Errorf("start = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = call(t, h, http.MethodPost, "/api/v1/projects/app/run", `{"command":"artisan migrate:status"}`)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "migrated") {
+		t.Errorf("run = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = call(t, h, http.MethodGet, "/api/v1/projects/app/processes/queue/log", "")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "log-baris") {
+		t.Errorf("log = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = call(t, h, http.MethodPost, "/api/v1/projects/app/schedule-run", "")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "sched-ok") {
+		t.Errorf("schedule-run = %d %s", rec.Code, rec.Body.String())
 	}
 }

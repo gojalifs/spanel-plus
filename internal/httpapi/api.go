@@ -35,6 +35,122 @@ func (a *api) register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/php/{version}/modules", a.phpModules)
 	mux.HandleFunc("POST /api/v1/apache/restart", a.apacheRestart)
 	mux.HandleFunc("POST /api/v1/apache/test", a.apacheTest)
+	// M4 supervisor surface.
+	mux.HandleFunc("GET /api/v1/processes", a.listProcesses)
+	mux.HandleFunc("POST /api/v1/projects/{name}/processes/{proc}/start", a.processStart)
+	mux.HandleFunc("POST /api/v1/projects/{name}/processes/{proc}/stop", a.processStop)
+	mux.HandleFunc("POST /api/v1/projects/{name}/processes/{proc}/restart", a.processRestart)
+	mux.HandleFunc("GET /api/v1/projects/{name}/processes/{proc}/log", a.processLog)
+	mux.HandleFunc("POST /api/v1/projects/{name}/run", a.runOnce)
+	mux.HandleFunc("POST /api/v1/projects/{name}/schedule-run", a.scheduleRun)
+}
+
+func (a *api) processes(w http.ResponseWriter) app.ProcessOps {
+	p := a.application.Processes()
+	if p == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "layanan proses tidak tersedia — periksa panel.json (lihat log panel)",
+		})
+		return nil
+	}
+	return p
+}
+
+func (a *api) listProcesses(w http.ResponseWriter, _ *http.Request) {
+	procs := a.processes(w)
+	if procs == nil {
+		return
+	}
+	sts, err := procs.Statuses()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if sts == nil {
+		sts = []core.ProcessStatus{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"processes": sts})
+}
+
+func (a *api) processStart(w http.ResponseWriter, r *http.Request) {
+	procs := a.processes(w)
+	if procs == nil {
+		return
+	}
+	a.processAction(w, procs.StartProcess(r.PathValue("name"), r.PathValue("proc")))
+}
+
+func (a *api) processStop(w http.ResponseWriter, r *http.Request) {
+	procs := a.processes(w)
+	if procs == nil {
+		return
+	}
+	a.processAction(w, procs.StopProcess(r.PathValue("name"), r.PathValue("proc")))
+}
+
+func (a *api) processRestart(w http.ResponseWriter, r *http.Request) {
+	procs := a.processes(w)
+	if procs == nil {
+		return
+	}
+	a.processAction(w, procs.RestartProcess(r.PathValue("name"), r.PathValue("proc")))
+}
+
+func (a *api) processAction(w http.ResponseWriter, err error) {
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+}
+
+func (a *api) processLog(w http.ResponseWriter, r *http.Request) {
+	files := a.application.LogFiles()
+	if files == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "layanan proses tidak tersedia"})
+		return
+	}
+	path := core.ProcessLogPath(a.application.ProcessLogDir(), r.PathValue("name"), r.PathValue("proc"))
+	text, err := core.TailLog(files, path, 200, 256<<10)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"log": text})
+}
+
+type runRequest struct {
+	Command string `json:"command"`
+}
+
+func (a *api) runOnce(w http.ResponseWriter, r *http.Request) {
+	procs := a.processes(w)
+	if procs == nil {
+		return
+	}
+	var req runRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, code, err := procs.RunOnce(r.Context(), r.PathValue("name"), req.Command)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"output": out, "exit_code": code})
+}
+
+func (a *api) scheduleRun(w http.ResponseWriter, r *http.Request) {
+	procs := a.processes(w)
+	if procs == nil {
+		return
+	}
+	out, code, err := procs.RunScheduleOnce(r.Context(), r.PathValue("name"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"output": out, "exit_code": code})
 }
 
 // overview is the dashboard summary (F8): panel status, Apache
@@ -312,7 +428,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 func writeErr(w http.ResponseWriter, err error) {
 	code := http.StatusBadRequest
 	switch {
-	case errors.Is(err, core.ErrProjectNotFound), errors.Is(err, core.ErrPHPVersionNotRegistered):
+	case errors.Is(err, core.ErrProjectNotFound), errors.Is(err, core.ErrPHPVersionNotRegistered), errors.Is(err, core.ErrProcessNotFound):
 		code = http.StatusNotFound
 	case errors.Is(err, core.ErrProjectExists), errors.Is(err, core.ErrPHPVersionExists), errors.Is(err, core.ErrPHPVersionInUse):
 		code = http.StatusConflict

@@ -39,3 +39,11 @@ input[type="text"], input:not([type]), select { padding: .4rem .5rem; border-rad
 .diff-add { color: #1a7f37; }
 .diff-remove { color: #cf222e; }
 .warn-badge { display: inline-block; border: 1px solid #bf8700; color: #bf8700; border-radius: 999px; padding: 0 .5rem; font-size: .78rem; margin-right: .3rem; cursor: help; }
+.state-chip { border: 1px solid currentColor; border-radius: 999px; padding: 0 .55rem; font-size: .8rem; white-space: nowrap; }
+.state-running { color: #1a7f37; }
+.state-backoff, .state-scheduled { color: #bf8700; }
+.state-failed { color: #cf222e; }
+.state-stopped, .state-exited, .state-idle { opacity: .75; }
+.proc-row { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; flex-wrap: wrap; }
+.proc-row input { width: auto; }
+.proc-row .pr-command { flex: 1; min-width: 220px; }

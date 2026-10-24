@@ -35,3 +35,20 @@ type ApacheOps interface {
 	Restart() error
 	TestConfig(ctx context.Context) error
 }
+
+// ProcessOps is the supervisor surface for the API (Plan F5).
+type ProcessOps interface {
+	Statuses() ([]core.ProcessStatus, error)
+	StartProcess(project, name string) error
+	StopProcess(project, name string) error
+	RestartProcess(project, name string) error
+	RunOnce(ctx context.Context, project, command string) (string, int, error)
+	RunScheduleOnce(ctx context.Context, project string) (string, int, error)
+}
+
+// Runtime bundles the long-running background workers (supervisor +
+// scheduler) the application starts and stops with its own lifecycle.
+type Runtime struct {
+	Supervisor *core.Supervisor
+	Scheduler  *core.Scheduler
+}

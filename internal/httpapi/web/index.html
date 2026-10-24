@@ -59,6 +59,28 @@
   </section>
 
   <section class="card">
+    <h2>Proses CLI (Supervisor)</h2>
+    <table id="process-table">
+      <thead><tr>
+        <th>Proyek</th><th>Nama</th><th>Perintah</th><th>Status</th><th>PID</th><th>Restart</th><th></th>
+      </tr></thead>
+      <tbody><tr><td colspan="7" class="muted">Memuat…</td></tr></tbody>
+    </table>
+    <form id="run-form" class="inline-form">
+      <select id="run-project"></select>
+      <input id="run-command" type="text" placeholder="Perintah sekali jalan, mis. artisan migrate:status" size="40" required>
+      <button type="submit">Jalankan</button>
+      <span class="muted">Memakai php.exe versi proyek untuk perintah artisan/*.php.</span>
+    </form>
+    <pre id="run-output" class="diff" hidden></pre>
+    <div id="log-panel" hidden>
+      <h3>Log — <span id="log-title"></span></h3>
+      <pre id="log-body" class="diff"></pre>
+      <button id="log-close" type="button">Tutup log</button>
+    </div>
+  </section>
+
+  <section class="card">
     <h2 id="project-form-title">Tambah proyek</h2>
     <form id="project-form">
       <div class="grid">
@@ -76,6 +98,13 @@
         <label>Versi PHP <select id="pf-php"></select></label>
         <label class="check"><input id="pf-enabled" type="checkbox" checked> Aktif</label>
       </div>
+      <h3>Proses CLI proyek ini</h3>
+      <div id="pf-processes"></div>
+      <p>
+        <button type="button" id="pf-proc-add">+ Proses</button>
+        <button type="button" id="pf-proc-queue">Template: queue Laravel</button>
+        <button type="button" id="pf-proc-sched">Template: scheduler Laravel</button>
+      </p>
       <button type="submit" id="pf-submit">Tambah &amp; apply</button>
       <button type="button" id="pf-reset">Reset form</button>
     </form>
