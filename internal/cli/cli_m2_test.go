@@ -37,6 +37,10 @@ func (f *fakeProjects) SetEnabled(_ context.Context, name string, enabled bool) 
 	f.lastToggl = [2]any{name, enabled}
 	return core.ApplyResult{BackupDir: "bk"}, f.applyErr
 }
+func (f *fakeProjects) RemoveProject(_ context.Context, name string) (core.ApplyResult, error) {
+	f.lastToggl = [2]any{name, "removed"}
+	return core.ApplyResult{BackupDir: "bk"}, f.applyErr
+}
 
 type fakeApache struct{ err error }
 
@@ -145,5 +149,38 @@ func TestPHPAndApacheCommands(t *testing.T) {
 	}
 	if code := New(deps).Run([]string{"apache", "status"}); code != 0 {
 		t.Errorf("apache status exit = %d, want 0", code)
+	}
+}
+
+type fakeRegistrar struct{ err error }
+
+func (f fakeRegistrar) Register(context.Context, string) (core.PHPRegistration, error) {
+	if f.err != nil {
+		return core.PHPRegistration{}, f.err
+	}
+	return core.PHPRegistration{
+		Version: core.PHPVersion{Version: "8.3", Path: `C:\php\8.3`},
+		Full:    "8.3.13", NTS: true, Arch: "x64", PHPIni: "generated",
+	}, nil
+}
+
+func TestProjectRemoveAndPHPDetect(t *testing.T) {
+	projects := &fakeProjects{}
+	deps, out, _ := testDeps()
+	deps.Projects = projects
+	deps.Apache = fakeApache{}
+	deps.PHPManager = fakeRegistrar{}
+	if code := New(deps).Run([]string{"project", "remove", "web-app"}); code != 0 {
+		t.Fatalf("project remove exit = %d, want 0", code)
+	}
+	if projects.lastToggl != [2]any{"web-app", "removed"} {
+		t.Errorf("remove must reach ops with the name, got %v", projects.lastToggl)
+	}
+	out.Reset()
+	if code := New(deps).Run([]string{"php", "add", "--path", `C:\php\8.3`}); code != 0 {
+		t.Fatalf("php add (detect) exit = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "8.3.13") || !strings.Contains(out.String(), "NTS") {
+		t.Errorf("php add without --version must report the detected build, got: %q", out.String())
 	}
 }

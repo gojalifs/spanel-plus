@@ -25,7 +25,28 @@ type Application struct {
 	doctor  core.Doctor
 	clock   core.Clock
 	started time.Time
+
+	projects ProjectOps
+	php      PHPOps
+	apache   ApacheOps
 }
+
+// AttachServices wires the state-changing services (registry, PHP
+// manager, Apache manager) into the application so the HTTP API can
+// reach them. Without it, the state endpoints answer 503 — the panel
+// still serves status/doctor (e.g. when panel.json is broken).
+func (a *Application) AttachServices(projects ProjectOps, php PHPOps, apache ApacheOps) {
+	a.projects, a.php, a.apache = projects, php, apache
+}
+
+// Projects returns the attached project service, or nil.
+func (a *Application) Projects() ProjectOps { return a.projects }
+
+// PHP returns the attached PHP manager, or nil.
+func (a *Application) PHP() PHPOps { return a.php }
+
+// Apache returns the attached Apache manager, or nil.
+func (a *Application) Apache() ApacheOps { return a.apache }
 
 // New builds an Application from fully-resolved dependencies.
 func New(cfg config.Config, logger *slog.Logger, doctor core.Doctor, clock core.Clock) *Application {

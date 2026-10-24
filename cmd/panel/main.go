@@ -51,6 +51,9 @@ func run() int {
 	// get the config error itself instead of a half-wired pipeline.
 	var projectOps cli.ProjectOps
 	var apacheOps cli.ApacheOps
+	var projectsSvc *core.ProjectService
+	var phpMgr *core.PHPManager
+	var apacheMgr *core.ApacheManager
 	if wireCfg, cfgErr := config.Load(baseDir); cfgErr == nil {
 		apacheHome, _ := core.ResolveApacheHome(platform.OSFileProbe{}, wireCfg.ApacheHome, config.DefaultApacheCandidates())
 		fileStore := platform.OSFileStore{}
@@ -84,7 +87,15 @@ func run() int {
 				HealthInterval: 500 * time.Millisecond,
 			},
 		}
-		projectOps = &core.ProjectService{Registry: registrySvc, Manager: manager}
+		projectsSvc = &core.ProjectService{Registry: registrySvc, Manager: manager, Files: fileStore}
+		phpMgr = &core.PHPManager{
+			Registry:    registrySvc,
+			Prober:      platform.ExecPHPProber{Runner: platform.ExecRunner{}},
+			Files:       fileStore,
+			RuntimeBase: filepath.Join(wireCfg.DataDir, "php-runtime"),
+		}
+		apacheMgr = manager
+		projectOps = projectsSvc
 		apacheOps = manager
 	} else {
 		broken := &brokenOps{err: cfgErr}
@@ -97,14 +108,18 @@ func run() int {
 		LoadConfig: func() (config.Config, error) {
 			return config.Load(baseDir)
 		},
-		NewLogger: logging.Setup,
-		Doctor:    doctor,
-		Service:   platform.NewServiceController(),
-		Clock:     clock,
-		Projects:  projectOps,
-		Apache:    apacheOps,
+		NewLogger:  logging.Setup,
+		Doctor:     doctor,
+		Service:    platform.NewServiceController(),
+		Clock:      clock,
+		Projects:   projectOps,
+		Apache:     apacheOps,
+		PHPManager: phpMgr,
 		Serve: func(cfg config.Config, logger *slog.Logger) error {
 			application := app.New(cfg, logger, doctor, clock)
+			if projectsSvc != nil {
+				application.AttachServices(projectsSvc, phpMgr, apacheMgr)
+			}
 			handler := httpapi.NewHandler(application, logger)
 			return platform.RunPanel(buildinfo.ServiceName, func(ctx context.Context) error {
 				return application.Run(ctx, handler)
@@ -112,6 +127,9 @@ func run() int {
 		},
 		OpenDesktop: func(cfg config.Config, logger *slog.Logger) error {
 			application := app.New(cfg, logger, doctor, clock)
+			if projectsSvc != nil {
+				application.AttachServices(projectsSvc, phpMgr, apacheMgr)
+			}
 			handler := httpapi.NewHandler(application, logger)
 			base := fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)
 			var runErr error
@@ -157,6 +175,9 @@ func (b *brokenOps) AddPHPVersion(core.PHPVersion) error {
 }
 func (b *brokenOps) RemovePHPVersion(string) error { return b.err }
 func (b *brokenOps) AddProject(context.Context, core.Project) (core.ApplyResult, error) {
+	return core.ApplyResult{}, b.err
+}
+func (b *brokenOps) RemoveProject(context.Context, string) (core.ApplyResult, error) {
 	return core.ApplyResult{}, b.err
 }
 func (b *brokenOps) SetPHP(context.Context, string, string) (core.ApplyResult, error) {

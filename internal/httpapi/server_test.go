@@ -101,7 +101,7 @@ func TestStaticAssetsServed(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "loadStatus") {
-		t.Errorf("app.js must be the embedded asset, got: %.120s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "loadAll") {
+		t.Errorf("app.js must be the embedded dashboard asset, got: %.120s", rec.Body.String())
 	}
 }

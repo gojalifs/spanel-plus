@@ -69,7 +69,7 @@ func (s *RegistryService) AddPHPVersion(v PHPVersion) error {
 		return err
 	}
 	if _, exists := reg.FindPHP(v.Version); exists {
-		return fmt.Errorf("php version %q is already registered", v.Version)
+		return fmt.Errorf("php version %q is already registered: %w", v.Version, ErrPHPVersionExists)
 	}
 	reg.PHPVersions = append(reg.PHPVersions, v)
 	return s.Save(reg)
@@ -84,7 +84,7 @@ func (s *RegistryService) RemovePHPVersion(version string) error {
 	}
 	for _, p := range reg.Projects {
 		if p.PHPVersion == version {
-			return fmt.Errorf("php version %q is still used by project %q", version, p.Name)
+			return fmt.Errorf("php version %q is still used by project %q: %w", version, p.Name, ErrPHPVersionInUse)
 		}
 	}
 	out := reg.PHPVersions[:0]
@@ -97,7 +97,7 @@ func (s *RegistryService) RemovePHPVersion(version string) error {
 		out = append(out, v)
 	}
 	if !found {
-		return fmt.Errorf("php version %q is not registered", version)
+		return fmt.Errorf("php version %q is not registered: %w", version, ErrPHPVersionNotRegistered)
 	}
 	reg.PHPVersions = out
 	return s.Save(reg)

@@ -37,6 +37,9 @@ func NewHandler(application *app.Application, logger *slog.Logger) http.Handler 
 		writeJSON(w, http.StatusOK, application.Doctor(r.Context()))
 	})
 
+	// M3 state API (projects, PHP versions, Apache actions).
+	(&api{application: application}).register(mux)
+
 	staticFS, err := fs.Sub(webFS, "web/static")
 	if err != nil {
 		panic(err) // embedded path is a build-time constant

@@ -44,6 +44,14 @@ type Deps struct {
 	Projects ProjectOps
 	// Apache exposes managed-Apache diagnostics (M2).
 	Apache ApacheOps
+	// PHPManager registers PHP builds by probing the binaries (M3);
+	// used by `php add` when no explicit --version is given.
+	PHPManager PHPRegistrar
+}
+
+// PHPRegistrar is the CLI's view of core.PHPManager.
+type PHPRegistrar interface {
+	Register(ctx context.Context, path string) (core.PHPRegistration, error)
 }
 
 // ProjectOps is the CLI's view of core.ProjectService.
@@ -52,6 +60,7 @@ type ProjectOps interface {
 	AddPHPVersion(v core.PHPVersion) error
 	RemovePHPVersion(version string) error
 	AddProject(ctx context.Context, p core.Project) (core.ApplyResult, error)
+	RemoveProject(ctx context.Context, name string) (core.ApplyResult, error)
 	SetPHP(ctx context.Context, name, version string) (core.ApplyResult, error)
 	SetEnabled(ctx context.Context, name string, enabled bool) (core.ApplyResult, error)
 }
@@ -90,8 +99,9 @@ Commands:
   project set-php N V   Ganti versi PHP proyek lewat pipa apply (backup -> httpd -t -> restart -> health check -> rollback bila gagal)
   project enable N      Aktifkan proyek (apply)
   project disable N     Nonaktifkan proyek (apply)
+  project remove N      Hapus proyek dari panel (apply; folder proyek tidak dihapus)
   php list              Daftar versi PHP terdaftar
-  php add --version 8.2 --path C:\panel\php\8.2
+  php add --path C:\panel\php\8.2 [--version 8.2]   Daftarkan PHP; tanpa --version, versi terdeteksi dari php.exe (build TS ditolak)
   php remove V          Hapus versi PHP (ditolak bila masih dipakai proyek)
   apache test           Jalankan httpd -t pada config aktif
   apache status         Status service Apache yang dikelola
@@ -270,7 +280,7 @@ func (c *CLI) applyError(err error) int {
 
 func (c *CLI) runProject(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(c.deps.ErrOut, "usage: panel project list|add|set-php|enable|disable ...")
+		fmt.Fprintln(c.deps.ErrOut, "usage: panel project list|add|set-php|enable|disable|remove ...")
 		return 2
 	}
 	ctx := context.Background()
@@ -332,6 +342,17 @@ func (c *CLI) runProject(args []string) int {
 		}
 		c.printApplyResult(res)
 		return 0
+	case "remove":
+		if len(args) != 2 {
+			fmt.Fprintln(c.deps.ErrOut, "usage: panel project remove <name>")
+			return 2
+		}
+		res, err := c.deps.Projects.RemoveProject(ctx, args[1])
+		if err != nil {
+			return c.applyError(err)
+		}
+		c.printApplyResult(res)
+		return 0
 	default:
 		fmt.Fprintf(c.deps.ErrOut, "subcommand project tidak dikenal: %q\n", args[0])
 		return 2
@@ -362,6 +383,17 @@ func (c *CLI) runPHP(args []string) int {
 		if err != nil {
 			fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
 			return 2
+		}
+		// Without an explicit --version, probe the binaries and
+		// register what is actually installed (M3, Plan F2).
+		if flags["version"] == "" && c.deps.PHPManager != nil {
+			reg, err := c.deps.PHPManager.Register(context.Background(), flags["path"])
+			if err != nil {
+				return c.applyError(err)
+			}
+			fmt.Fprintf(c.deps.Out, "PHP %s terdaftar (%s) — terdeteksi %s %s %s, php.ini: %s.\n",
+				reg.Version.Version, reg.Version.Path, reg.Full, map[bool]string{true: "NTS", false: "TS"}[reg.NTS], reg.Arch, reg.PHPIni)
+			return 0
 		}
 		v := core.PHPVersion{Version: flags["version"], Path: flags["path"]}
 		if err := c.deps.Projects.AddPHPVersion(v); err != nil {

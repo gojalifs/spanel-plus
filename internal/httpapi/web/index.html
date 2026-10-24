@@ -9,24 +9,81 @@
 <body>
 <header>
   <h1>{{.Name}}</h1>
-  <span class="badge">M1 skeleton · v{{.Version}}</span>
+  <span class="badge">v{{.Version}}</span>
+  <span id="apache-chip" class="badge">Apache: …</span>
+  <button id="btn-apache-restart" type="button">Restart Apache</button>
+  <button id="btn-apache-test" type="button">Tes config</button>
 </header>
+
+<div id="toast" class="toast" hidden></div>
+
 <main>
-  <section class="card">
-    <h2>Status panel</h2>
-    <p id="status-line">Memuat dari <code>/api/v1/status</code>…</p>
-    <dl id="status-detail"></dl>
+  <section class="cards-row">
+    <div class="card stat"><h2>Proyek aktif</h2><p id="stat-projects" class="big">…</p></div>
+    <div class="card stat"><h2>Versi PHP</h2><p id="stat-php" class="big">…</p></div>
+    <div class="card stat"><h2>Apache</h2><p id="stat-apache" class="big">…</p><p id="stat-apache-name" class="muted"></p></div>
+    <div class="card stat"><h2>Panel</h2><p id="stat-panel" class="big">…</p><p class="muted">port {{.Port}}</p></div>
   </section>
+
+  <section class="card">
+    <h2>Versi PHP</h2>
+    <table id="php-table">
+      <thead><tr><th>Versi</th><th>Folder</th><th></th></tr></thead>
+      <tbody><tr><td colspan="3" class="muted">Memuat…</td></tr></tbody>
+    </table>
+    <form id="php-form" class="inline-form">
+      <input id="php-path" type="text" placeholder="Folder PHP, mis. C:\php\8.3" size="34" required>
+      <button type="submit">Daftarkan versi PHP</button>
+      <span class="muted">Versi terdeteksi otomatis dari <code>php.exe -v</code>; build TS ditolak (fcgid butuh NTS).</span>
+    </form>
+    <div id="php-modules" hidden>
+      <h3>Extension (<span id="php-modules-title"></span>)</h3>
+      <p id="php-modules-list" class="mono"></p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Proyek</h2>
+    <table id="project-table">
+      <thead><tr>
+        <th>Nama</th><th>URL</th><th>Tipe</th><th>PHP</th><th>Aktif</th><th>Peringatan</th><th></th>
+      </tr></thead>
+      <tbody><tr><td colspan="7" class="muted">Memuat…</td></tr></tbody>
+    </table>
+    <div id="diff-panel" hidden>
+      <h3>Preview perubahan config — <span id="diff-title"></span></h3>
+      <pre id="diff-body" class="diff"></pre>
+      <button id="diff-apply" type="button">Apply perubahan ini</button>
+      <button id="diff-cancel" type="button">Batal</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 id="project-form-title">Tambah proyek</h2>
+    <form id="project-form">
+      <div class="grid">
+        <label>Nama <input id="pf-name" required pattern="[a-z][a-z0-9-]*" placeholder="wh-system"></label>
+        <label>URL path <input id="pf-url" required placeholder="/wh-system"></label>
+        <label>Folder proyek <input id="pf-path" required placeholder="C:\xampp\htdocs\wh-system"></label>
+        <label>Tipe
+          <select id="pf-type">
+            <option value="laravel">Laravel</option>
+            <option value="php-native">PHP native</option>
+            <option value="static">Static</option>
+          </select>
+        </label>
+        <label>Subfolder publik <input id="pf-public" placeholder="public (Laravel) / dist (static) / kosong"></label>
+        <label>Versi PHP <select id="pf-php"></select></label>
+        <label class="check"><input id="pf-enabled" type="checkbox" checked> Aktif</label>
+      </div>
+      <button type="submit" id="pf-submit">Tambah &amp; apply</button>
+      <button type="button" id="pf-reset">Reset form</button>
+    </form>
+  </section>
+
   <section class="card">
     <h2>Doctor</h2>
-    <p>Hasil pemeriksaan lingkungan dari <code>/api/v1/doctor</code>:</p>
     <ul id="doctor-list"><li>Memuat…</li></ul>
-  </section>
-  <section class="card muted">
-    <h2>Berikutnya</h2>
-    <p>Dashboard proyek, PHP manager, dan supervisor proses tiba di
-    milestone M2–M4. Skeleton M1 membuktikan: satu binary Go, Windows
-    Service native, UI ter-embed di port {{.Port}}, dan doctor awal.</p>
   </section>
 </main>
 <script src="/static/app.js"></script>

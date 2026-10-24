@@ -16,8 +16,10 @@ testing): [`docs/plan-fase-1.md`](docs/plan-fase-1.md)
 
 **Fase 1 — M0 GO (terkunci oleh max, 2026-10-24). M1 skeleton Go +
 mode desktop terbukti di mesin Windows. M2 (registry + ConfigGen +
-pipa apply) selesai dibangun, menunggu smoke test end-to-end di mesin
-Windows ([`docs/m2-smoke-test.md`](docs/m2-smoke-test.md)).**
+pipa apply) dan M3 (PHP manager + CRUD UI) selesai dibangun; smoke
+test Windows untuk keduanya menunggu giliran max
+([`docs/m2-smoke-test.md`](docs/m2-smoke-test.md),
+[`docs/m3-smoke-test.md`](docs/m3-smoke-test.md)).**
 
 - M0 membuktikan desain di mesin uji: satu Apache 2.4.69 VS18 +
   `mod_fcgid` 2.3.10 + PHP 8.2.35 & 8.3.36 NTS x64 melayani beberapa
@@ -32,6 +34,17 @@ Windows ([`docs/m2-smoke-test.md`](docs/m2-smoke-test.md)).**
   terbukti dari screenshot mesin Windows max 2026-10-24 — sisa kriteria
   service dibuktikan lewat
   [`docs/m1-smoke-test.md`](docs/m1-smoke-test.md).
+- **M3 (v0.4.0-m3):** dashboard UI beneran di jendela desktop —
+  kartu ringkasan, tabel proyek & versi PHP, form tambah/edit proyek.
+  PHP Manager (F2): daftarkan PHP dari folder → versi terdeteksi dari
+  `php.exe -v` (angka yang diketik tidak dipercaya), build **TS
+  ditolak** (fcgid butuh NTS), `php.ini` production tergenerate bila
+  belum ada (yang sudah ada tidak disentuh), daftar extension dari
+  `php -m`. CRUD proyek penuh lewat API JSON (`/api/v1/...`) termasuk
+  hapus & edit; ganti PHP dari UI selalu lewat **preview diff → apply**
+  (F8). Peringatan per proyek: `APP_URL` Laravel tak cocok path panel
+  & scanner `php_value`/`php_flag` di `.htaccess` (F1/F4). CLI ikut
+  dapat `project remove` dan `php add` deteksi otomatis.
 - **M2 (v0.3.0-m2):** registry JSON (tulis atomik, validasi struktur +
   lingkungan — registri invalid tidak pernah sampai ke disk/Apache),
   ConfigGen deterministik per tipe proyek (golden-file tested, pola
@@ -82,11 +95,11 @@ panel.exe doctor              # cek path Apache, httpd -v, mod_fcgid, port, data
 panel.exe serve               # server tanpa jendela; bila dimulai SCM, jalan sebagai Windows Service
 panel.exe service install     # Administrator: daftar service, start otomatis saat boot
 panel.exe service start|stop|status|uninstall
-panel.exe php add --version 8.2 --path C:\panel\php\8.2
+panel.exe php add --path C:\panel\php\8.2   # versi terdeteksi dari php.exe; --version eksplisit tetap bisa
 panel.exe php list|remove <versi>
 panel.exe project add --name app --url /app --path C:\htdocs\app --type laravel --php 8.2
 panel.exe project set-php app 8.3   # lewat pipa apply penuh (rollback otomatis bila gagal)
-panel.exe project enable|disable|list
+panel.exe project enable|disable|list|remove app
 panel.exe apache test|status|restart
 ```
 
@@ -133,6 +146,7 @@ pertama ditolak GitHub (`403 Resource not accessible by integration`)
 karena instalasi GitHub App Muse belum punya izin *Workflows*.
 File-nya siap di staging Muse; masuk repo begitu izin itu diberikan
 (atau di-commit manual dari mesin Windows). Cakupan unit test saat
-saat ini: core 89% (configgen & health check 100%, validasi registry
-±100%, pipa apply 84% termasuk semua skenario rollback), desktop 96%,
-httpapi 91%, config 86%, logging 82%, cli 68%.
+saat ini: core 85% (configgen & health check 100%, validasi registry
+±100%, pipa apply 84% termasuk semua skenario rollback, PHP manager &
+scanner peringatan teruji), desktop 96%, httpapi 71%, config 86%,
+logging 82%, cli 69%.
