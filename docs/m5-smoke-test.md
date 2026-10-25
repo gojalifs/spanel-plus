@@ -3,7 +3,7 @@
 M5 dinyatakan selesai bila kriteria plan terbukti: **dari CLI saja,
 tanpa membuka UI, layanan Apache yang dihentikan dari luar panel
 dipulihkan** — dan semua perubahan tercatat di audit log. Prasyarat:
-panel v0.6.1-m5, dan panel sedang jalan (service atau console `serve`).
+panel v0.6.2-m5, dan panel sedang jalan (service atau console `serve`).
 Perintah state CLI di M5 berbicara ke panel lewat HTTP API, jadi
 **panel harus jalan dulu** — ini perubahan dari smoke M2, yang
 memakai CLI langsung ke registry. Bila panel mati, CLI gagal keras

@@ -10,7 +10,7 @@ var (
 	// the process Supervisor and the schedule:run Scheduler;
 	// 0.6.0-m5 adds admin auth + audit log, the comprehensive
 	// doctor, and CLI parity through the HTTP API).
-	Version = "0.6.1-m5"
+	Version = "0.6.2-m5"
 	// Commit is the git commit the binary was built from, if known.
 	Commit = "dev"
 )
