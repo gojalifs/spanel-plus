@@ -7,6 +7,11 @@
 #   cd /c/Panel            # atau folder mana pun tempat script + exe berada
 #   bash setup-panel-smoke-v2.sh
 #
+# Alternatif tanpa exe lokal: set PANEL_EXE_URL ke URL asset release GitHub
+# (mis. https://github.com/gojalifs/spanel-plus/releases/download/v0.6.2-m5/
+# panel-v0.6.2-m5.exe) - script mengunduhnya sendiri. Tanpa keduanya, script
+# berhenti keras di langkah 1 (sengaja, bukan jalan setengah-setengah).
+#
 # Yang script kerjakan (urut, fail-loud di tiap langkah):
 #   1. Cari panel exe di folder script (diutamakan panel-v*.exe terbaru),
 #      salin ke C:\Panel\panel.exe (di-skip kalau sumbernya sudah file itu).
@@ -72,7 +77,14 @@ if [ -n "$ls_out" ]; then panel_src="$(printf '%s' "$ls_out" | head -n1)"; fi
 if [ -z "$panel_src" ]; then
   panel_src="$(ls "$SCRIPT_DIR"/panel*.exe 2>/dev/null | head -n1 || true)"
 fi
-[ -n "$panel_src" ] || fail "Tidak ada file panel*.exe di folder script ($SCRIPT_DIR). Download dulu panel-v0.6.2-m5.exe dan taruh sebelahan dengan script ini."
+if [ -z "$panel_src" ] && [ -n "${PANEL_EXE_URL:-}" ]; then
+  # Tidak ada exe lokal tapi ada URL release: unduh langsung ke tujuan.
+  info "Tidak ada panel exe lokal - download dari PANEL_EXE_URL"
+  mkdir -p "$PANEL_DIR"
+  download "$PANEL_EXE_URL" "$PANEL_DIR/panel.exe" 1000000
+  panel_src="$PANEL_DIR/panel.exe"
+fi
+[ -n "$panel_src" ] || fail "Tidak ada file panel*.exe di folder script ($SCRIPT_DIR) dan PANEL_EXE_URL tidak di-set. Download dulu panel-v0.6.2-m5.exe dan taruh sebelahan dengan script ini, atau set PANEL_EXE_URL ke URL asset release GitHub."
 mkdir -p "$PANEL_DIR"
 # Stop service panel lama dulu kalau jalan (file exe terkunci saat jalan).
 if sc query SPanelPlus >/dev/null 2>&1; then
@@ -164,6 +176,9 @@ done
 # --- 5. Proyek dummy M0 (isi persis dari kit m0/) ------------------------------
 # Heredoc dikutip ('EOF') supaya $ di kode PHP tidak di-expand bash.
 info "Tulis proyek dummy M0 ke $M0/htdocs"
+# BUGFIX v3: subfolder proyek harus dibuat dulu - `cat >` tidak membuat
+# folder induk, dan run pertama gagal di sini (app-php82 belum ada).
+mkdir -p "$M0/htdocs/app-php82" "$M0/htdocs/app-php83" "$M0/htdocs/app-laravel/public" "$M0/htdocs/app-laravel/storage/logs"
 cat > "$M0/htdocs/app-php82/index.php" <<'EOF'
 <?php
 // M0 dummy - plain project pinned to PHP 8.2
