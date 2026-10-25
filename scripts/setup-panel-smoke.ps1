@@ -88,7 +88,11 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 }
 
 # --- 1. Panel exe: cari di folder script, salin ke C:\Panel -------------------
-$panelExeSrc = Get-ChildItem -Path $PSScriptRoot -Filter "panel*.exe" -File | Select-Object -First 1
+# Preferensi: file berversi (panel-v*.exe, yang terbaru) di atas panel.exe
+# polos, supaya folder yang berisi keduanya tidak salah pilih exe lama.
+$candidates = Get-ChildItem -Path $PSScriptRoot -Filter "panel*.exe" -File
+$panelExeSrc = ($candidates | Where-Object { $_.Name -match '^panel-v.*\.exe$' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+if ($null -eq $panelExeSrc) { $panelExeSrc = $candidates | Select-Object -First 1 }
 if ($null -eq $panelExeSrc) {
     Fail "Tidak ada file panel*.exe di folder script ($PSScriptRoot). Download dulu panel-v0.6.2-m5.exe dan taruh sebelahan dengan script ini."
 }
@@ -99,8 +103,14 @@ if ($null -ne $panelSvc -and $panelSvc.Status -eq "Running") {
     Stop-Service -Name "SPanelPlus" -Force
 }
 $panelExe = Join-Path $PanelDir "panel.exe"
-Copy-Item $panelExeSrc.FullName $panelExe -Force
-Info "Panel exe: $($panelExeSrc.Name) -> $panelExe"
+if ($panelExeSrc.FullName -ieq $panelExe) {
+    # Script + exe sudah di C:\Panel dan exe sudah bernama panel.exe:
+    # menyalin file ke dirinya sendiri ditolak PowerShell, jadi skip saja.
+    Info "Panel exe sudah di $panelExe, skip salin"
+} else {
+    Copy-Item $panelExeSrc.FullName $panelExe -Force
+    Info "Panel exe: $($panelExeSrc.Name) -> $panelExe"
+}
 
 # --- 2. VC Redistributable (loud, sama seperti setup M0) -----------------------
 if (-not (Test-Path "$env:SystemRoot\System32\vcruntime140.dll")) {
