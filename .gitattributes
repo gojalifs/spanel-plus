@@ -6,3 +6,7 @@
 # content, and a CRLF copy of a clean file is listed by gofmt -l locally.
 *.go text eol=lf
 *.sh text eol=lf
+# Golden fixtures compared byte-for-byte by TestConfigGenGoldenFiles:
+# a Windows checkout must not convert these to CRLF, or the golden
+# test fails with "golden mismatch" (proven 2026-10-26, CI run #3).
+*.conf text eol=lf
