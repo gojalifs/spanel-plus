@@ -18,8 +18,12 @@ Prasyarat: Apache M0 masih jalan dari M0/M1 (`C:\m0\Apache24`, PHP di
 > (di luar blok mana pun), lalu restart Apache sekali:
 >
 > ```
-> Include "C:/Panel/data/generated/apache/*.conf"
+> IncludeOptional "C:/Panel/data/generated/apache/*.conf"
 > ```
+>
+> (IncludeOptional, bukan Include biasa: Include biasa membuat `httpd -t`
+> gagal bila direktori generated masih kosong — persis sebelum apply
+> pertama panel. Ditemukan saat setup fresh 2026-10-26.)
 >
 > Config M0 (`C:\m0\conf-m0-projects.conf`) JANGAN dimatikan: baris
 > `LoadModule fcgid_module` tinggal di sana, dan panel sengaja tidak

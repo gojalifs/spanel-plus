@@ -353,15 +353,20 @@ if grep -qE '^[[:space:]]*LoadModule php' "$CONF"; then
   fail "httpd.conf masih memuat mod_php (LoadModule php...) - melanggar desain M0. Tempel baris itu ke Muse."
 fi
 grep -q 'conf-m0-projects\.conf' "$CONF" || printf '\r\nInclude "C:/m0/conf-m0-projects.conf"\r\n' >> "$CONF"
-grep -q 'data/generated/apache' "$CONF" || printf '\r\nInclude "C:/Panel/data/generated/apache/*.conf"\r\n' >> "$CONF"
+# Baris Include panel dari run lama (v3) yang masih plain Include harus
+# dimigrasi: kalau tidak, httpd -t tetap gagal pada direktori kosong.
+sed -i -E '/data\/generated\/apache/s/^Include /IncludeOptional /' "$CONF"
+grep -q 'data/generated/apache' "$CONF" || printf '\r\nIncludeOptional "C:/Panel/data/generated/apache/*.conf"\r\n' >> "$CONF"
 info "httpd.conf ter-patch (backup: httpd.conf.orig-m0)"
 grep -E '^(Define SRVROOT|DocumentRoot|Listen|ServerName)' "$CONF" || true
 
 # --- 7. Bukti lokal: httpd -t harus Syntax OK ----------------------------------
-# BUGFIX v4: Apache menolak Include wildcard bila DIREKTORINYA belum ada,
-# meski nol file cocok. Panel belum pernah jalan di setup fresh, jadi
-# data/generated/apache belum ada - buat dulu sebelum httpd -t, kalau
-# tidak setup selalu gagal di sini dengan "Could not open directory".
+# BUGFIX v5 (koreksi atas v4): mkdir saja TIDAK cukup. Include biasa
+# menuntut wildcard cocok >= 1 file - direktori kosong tetap gagal
+# ("No matches for the wildcard"). Yang benar: IncludeOptional untuk
+# direktori generated panel, yang boleh kosong sebelum apply pertama.
+# (v4 hanya mengatasi error "Could not open directory" saat direktori
+# belum ada sama sekali.)
 mkdir -p "$PANEL_DIR/data/generated/apache"
 # (|| true: tanpa itu, httpd -t yang gagal mematikan script sebelum pesan
 # fail di bawah sempat tampil.)
