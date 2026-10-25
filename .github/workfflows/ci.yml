@@ -1,0 +1,84 @@
+name: CI
+
+# Plan Fase 1 Bagian 10.3: per push/PR wajib gofmt -> go vet ->
+# go test ./... -> build. Runner utama windows-latest (target platform
+# panel); ubuntu-latest ikut menjalankan unit test yang sama karena
+# core panel sengaja OS-agnostic (Plan 10.1).
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test-build:
+    name: test & build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt check
+        shell: bash
+        run: |
+          files=$(gofmt -l cmd internal)
+          if [ -n "$files" ]; then
+            echo "Files not gofmt-clean:"
+            echo "$files"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: unit tests
+        run: go test ./...
+
+      - name: build (Windows)
+        if: runner.os == 'Windows'
+        run: go build -o dist/panel.exe ./cmd/panel
+
+      - name: build (non-Windows, compile check only)
+        if: runner.os != 'Windows'
+        run: go build -o dist/panel ./cmd/panel
+
+      - name: upload panel binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: panel-${{ matrix.os }}
+          path: dist/
+          if-no-files-found: error
+
+  # Release publik: artefact Actions butuh login GitHub untuk diunduh,
+  # sedangkan asset Release bisa diunduh tanpa login - dan setup script
+  # (PANEL_EXE_URL) mengarah ke asset ini. Job ini hanya jalan saat ada
+  # tag v* yang di-push, mis: git tag v0.6.2-m5 && git push origin v0.6.2-m5
+  release:
+    name: release (tag v*)
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: build
+        run: go build -trimpath -ldflags "-s -w" -o dist/panel-${{ github.ref_name }}.exe ./cmd/panel
+
+      - name: create release with binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create ${{ github.ref_name }} dist/panel-${{ github.ref_name }}.exe --generate-notes
