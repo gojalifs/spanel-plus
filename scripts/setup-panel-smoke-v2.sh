@@ -358,6 +358,11 @@ info "httpd.conf ter-patch (backup: httpd.conf.orig-m0)"
 grep -E '^(Define SRVROOT|DocumentRoot|Listen|ServerName)' "$CONF" || true
 
 # --- 7. Bukti lokal: httpd -t harus Syntax OK ----------------------------------
+# BUGFIX v4: Apache menolak Include wildcard bila DIREKTORINYA belum ada,
+# meski nol file cocok. Panel belum pernah jalan di setup fresh, jadi
+# data/generated/apache belum ada - buat dulu sebelum httpd -t, kalau
+# tidak setup selalu gagal di sini dengan "Could not open directory".
+mkdir -p "$PANEL_DIR/data/generated/apache"
 # (|| true: tanpa itu, httpd -t yang gagal mematikan script sebelum pesan
 # fail di bawah sempat tampil.)
 info "Test konfigurasi Apache"
