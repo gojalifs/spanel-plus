@@ -48,37 +48,56 @@ func newMemFS() *memFS {
 	return &memFS{files: map[string][]byte{}, dirs: map[string]bool{}}
 }
 
-func (f *memFS) Exists(p string) bool { _, ok := f.files[p]; return ok || f.dirs[p] }
-func (f *memFS) IsDir(p string) bool  { return f.dirs[p] }
+// normPath collapses both separators to "/": production code joins
+// paths with joinPath (always "/"), while test fixtures are built
+// with filepath.Join (OS separator). A real filesystem accepts both
+// on Windows; this fake must too, or tests that mix the two
+// conventions fail on Windows only (proven 2026-10-26, CI run #4:
+// TestPHPManagerRegister and TestPHPManagerKeepsExistingIni failed
+// with "missing php-cgi.exe" because the rig wrote
+// `C:\php\8.3\php-cgi.exe` while ValidateEnvironment looked up
+// `C:\php\8.3/php-cgi.exe`).
+func normPath(p string) string { return strings.ReplaceAll(p, "\\", "/") }
+
+func (f *memFS) Exists(p string) bool {
+	p = normPath(p)
+	_, ok := f.files[p]
+	return ok || f.dirs[p]
+}
+func (f *memFS) IsDir(p string) bool { return f.dirs[normPath(p)] }
 func (f *memFS) EnsureWritableDir(dir string) error {
 	return f.MkdirAll(dir)
 }
 func (f *memFS) ReadFile(p string) ([]byte, error) {
-	data, ok := f.files[p]
+	data, ok := f.files[normPath(p)]
 	if !ok {
 		return nil, errors.New("not exist: " + p)
 	}
 	return append([]byte(nil), data...), nil
 }
 func (f *memFS) WriteFile(p string, data []byte) error {
+	p = normPath(p)
 	_ = f.MkdirAll(filepath.Dir(p))
 	f.files[p] = append([]byte(nil), data...)
 	return nil
 }
 func (f *memFS) WriteFileAtomic(p string, data []byte) error { return f.WriteFile(p, data) }
 func (f *memFS) MkdirAll(dir string) error {
-	for d := dir; ; d = filepath.Dir(d) {
+	for d := normPath(dir); ; {
 		f.dirs[d] = true
-		if filepath.Dir(d) == d {
+		parent := normPath(filepath.Dir(d))
+		if parent == d {
 			return nil
 		}
+		d = parent
 	}
 }
-func (f *memFS) Remove(p string) error { delete(f.files, p); return nil }
+func (f *memFS) Remove(p string) error { delete(f.files, normPath(p)); return nil }
 func (f *memFS) RemoveAll(p string) error {
+	p = normPath(p)
 	delete(f.files, p)
 	delete(f.dirs, p)
-	prefix := p + string(filepath.Separator)
+	prefix := p + "/"
 	for k := range f.files {
 		if strings.HasPrefix(k, prefix) {
 			delete(f.files, k)
@@ -94,13 +113,13 @@ func (f *memFS) RemoveAll(p string) error {
 func (f *memFS) ListNames(dir string) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
-	prefix := dir + string(filepath.Separator)
+	prefix := normPath(dir) + "/"
 	collect := func(path string) {
 		if !strings.HasPrefix(path, prefix) {
 			return
 		}
 		rest := strings.TrimPrefix(path, prefix)
-		name := strings.SplitN(rest, string(filepath.Separator), 2)[0]
+		name := strings.SplitN(rest, "/", 2)[0]
 		if !seen[name] {
 			seen[name] = true
 			out = append(out, name)
@@ -113,6 +132,29 @@ func (f *memFS) ListNames(dir string) ([]string, error) {
 		collect(d)
 	}
 	return out, nil
+}
+
+func TestMemFSSeparatorTolerance(t *testing.T) {
+	fs := newMemFS()
+	// Production code joins with "/" (joinPath); fixtures are built
+	// with filepath.Join ("\" on Windows). The fake must resolve both
+	// spellings to the same entry, like a real Windows filesystem.
+	if err := fs.WriteFile(`C:\php\8.3\php-cgi.exe`, []byte("x")); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if !fs.Exists(`C:/php/8.3/php-cgi.exe`) {
+		t.Error("slash-joined path must find backslash-written file")
+	}
+	if !fs.IsDir(`C:/php/8.3`) {
+		t.Error("slash-joined dir must resolve")
+	}
+	if _, err := fs.ReadFile(`C:/php/8.3/php-cgi.exe`); err != nil {
+		t.Errorf("ReadFile slash path: %v", err)
+	}
+	names, err := fs.ListNames(`C:\php\8.3`)
+	if err != nil || len(names) != 1 || names[0] != "php-cgi.exe" {
+		t.Errorf("ListNames = %v, %v", names, err)
+	}
 }
 
 // --- other fakes ---
