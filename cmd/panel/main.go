@@ -205,7 +205,7 @@ func run() int {
 			return launcher.Launch()
 		},
 	}
-	return cli.New(deps).Run(os.Args[1:])
+	return cli.New(deps).Run(cli.StripSelfArgs(os.Args[1:], os.Args[0]))
 }
 
 // wireAD attaches the directory authenticator from panel.json

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"strings"
 
 	"github.com/gojalifs/spanel-plus/internal/app"
@@ -126,6 +127,26 @@ tidak pernah beraksi atas state yang berbeda.
 Konfigurasi: file panel.json di folder yang sama dengan panel.exe
 (port, data_dir, log_dir, apache_home, apache_service).
 `
+
+// StripSelfArgs drops leading arguments that are just the panel
+// binary itself. Some launch environments (notably Android's linker
+// under Termux) deliver the executable path as the first argument,
+// so `panel admin set-password` arrives as `panel <path> admin
+// set-password` and dispatch would otherwise report the path as an
+// unknown command. No real panel command is ever a path, so dropping
+// such an argument cannot swallow a user command.
+func StripSelfArgs(args []string, exePath string) []string {
+	exeBase := filepath.Base(exePath)
+	for len(args) > 0 {
+		a := args[0]
+		if a == exePath || (strings.Contains(a, "/") && filepath.Base(a) == exeBase) {
+			args = args[1:]
+			continue
+		}
+		break
+	}
+	return args
+}
 
 // Run executes one command line and returns the process exit code.
 func (c *CLI) Run(args []string) int {
