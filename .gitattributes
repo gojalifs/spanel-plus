@@ -1,0 +1,8 @@
+# Line endings: Go sources and bash scripts must stay LF on every checkout.
+# Without this, a Windows checkout converts LF -> CRLF (Git for Windows
+# autocrlf default) and `gofmt -l` flags EVERY Go file as unformatted,
+# because gofmt output uses LF. Proven 2026-10-26: CI run #2 failed the
+# gofmt step on windows-latest while ubuntu-latest passed on identical
+# content, and a CRLF copy of a clean file is listed by gofmt -l locally.
+*.go text eol=lf
+*.sh text eol=lf
