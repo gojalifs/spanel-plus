@@ -26,7 +26,7 @@ bash setup-panel-smoke-v5.sh
 
 Script mengurus: Apache 2.4.69 + mod_fcgid, PHP 8.2 & 8.3, dummy M0,
 `httpd.conf`, `panel.json` (AD dummy), password admin, service Apache
-(`Apache2.4`) dan panel (`SPanelPlus`). Script berhenti keras
+(apache-spanel) dan panel (`SPanelPlus`). Script berhenti keras
 (`SETUP FAIL`) bila ada langkah gagal — tempel pesan itu ke Muse, jangan
 diakali manual.
 
@@ -40,6 +40,11 @@ diakali manual.
 - `http://127.0.0.1/app-laravel/` tampil tanpa perlu `/public`.
 - `http://127.0.0.1/app-laravel/.env` membalas 404.
 - Panel UI bisa dibuka di `http://127.0.0.1:8888`.
+
+Catatan port: di awal setting Apache, script bertanya `Port Apache [80]`
+(default 80; set env `APACHE_PORT` untuk jalan non-interaktif). Kalau lu
+pilih port selain 80, semua URL `http://127.0.0.1/...` di tutorial ini
+jadi `http://127.0.0.1:<port>/...`.
 
 Catatan: baris Include untuk config generated panel di `httpd.conf`
 harus `IncludeOptional`, bukan `Include` biasa — `Include` biasa
@@ -338,6 +343,7 @@ persis kalau ada, plus:
 | `app-laravel` 403/404 | `Alias` tidak cocok dengan path fisik, atau `<Directory ...\public>` belum `Require all granted` |
 | `.env` bisa dibuka (200) | Alias bocor ke root proyek — STOP, ini gagal kriteria; cek Alias hanya menunjuk ke `public` |
 | `php.exe` / `httpd.exe` error VCRUNTIME140.dll | VC Redistributable x64 belum terpasang / perlu restart |
-| Service Apache2.4 sudah ada tapi bukan dari `C:\m0` | Milik XAMPP/aplikasi lain — stop/uninstall dulu sebelum setup |
-| Port 80 dipakai aplikasi lain | Cek `netstat -ano \| findstr :80`, stop dulu service itu (IIS/XAMPP/Skype) |
+| Service apache-spanel sudah ada tapi bukan dari `C:\m0` | Milik aplikasi lain — stop/uninstall dulu sebelum setup |
+| Service lama Apache2.4 (dari setup sebelumnya) | Dimigrasi otomatis ke apache-spanel saat setup dijalankan ulang |
+| Port Apache dipakai aplikasi lain | Cek `netstat -ano \| findstr :<port>`, stop dulu service itu (IIS/XAMPP/Skype) |
 | Doctor WARN `panel-port` | By design, bukan kegagalan |

@@ -29,7 +29,8 @@
 param(
     [string]$PanelDir = "C:\Panel",
     [string]$M0Dir = "C:\m0",
-    [string]$ApacheServiceName = "Apache2.4"
+    [string]$ApacheServiceName = "apache-spanel",
+    [int]$ApachePort = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -116,6 +117,25 @@ if ($panelExeSrc.FullName -ieq $panelExe) {
 if (-not (Test-Path "$env:SystemRoot\System32\vcruntime140.dll")) {
     Fail "vcruntime140.dll tidak ada - install dulu VC++ Redistributable 2015-2022 x64: https://aka.ms/vs/17/release/vc_redist.x64.exe lalu jalankan ulang script ini."
 }
+
+# --- Port Apache: dipilih di awal setting Apache ---------------------------
+# Env APACHE_PORT menang (untuk jalan non-interaktif); kalau tidak di-set
+# dan parameter -ApachePort tidak diisi, script bertanya (default 80).
+# Port ini dipakai patch httpd.conf (Listen + ServerName), pesan fail
+# service, dan URL verifikasi akhir. Port panel (8888) tidak boleh dipakai.
+$portRaw = $null
+if ($env:APACHE_PORT) { $portRaw = $env:APACHE_PORT }
+elseif ($ApachePort -ne 0) { $portRaw = "$ApachePort" }
+else {
+    $portInput = Read-Host "Port Apache [80]"
+    if ([string]::IsNullOrWhiteSpace($portInput)) { $portRaw = "80" } else { $portRaw = $portInput }
+}
+if ($portRaw -notmatch '^\d+$') { Fail "Port Apache harus angka, dapat: '$portRaw'" }
+$ApachePort = [int]$portRaw
+if (($ApachePort -lt 1) -or ($ApachePort -gt 65535)) { Fail "Port Apache di luar rentang 1-65535: $ApachePort" }
+if ($ApachePort -eq 8888) { Fail "Port Apache tidak boleh sama dengan port panel (8888)" }
+if ($ApachePort -eq 80) { $apacheBase = "http://127.0.0.1" } else { $apacheBase = "http://127.0.0.1:$ApachePort" }
+Info "Port Apache: $ApachePort"
 
 # --- 3. Apache + mod_fcgid (URL VS18 terverifikasi 2026-10-23 & 2026-10-25) ----
 # Apache Lounge sudah pindah dari VS17 ke VS18; keduanya harus sama-sama VS18
@@ -359,9 +379,9 @@ if (-not (Test-Path "$conf.orig-m0")) { Copy-Item $conf "$conf.orig-m0" }
 $text = [System.IO.File]::ReadAllText($conf)
 $text = $text -replace '(?m)^Define SRVROOT .*', 'Define SRVROOT "C:/m0/Apache24"'
 $text = $text -replace '(?m)^ServerRoot .*', 'ServerRoot "C:/m0/Apache24"'
-$text = $text -replace '(?m)^#?\s*ServerName .*', 'ServerName localhost:80'
-if ($text -notmatch '(?m)^ServerName ') { $text += "`r`nServerName localhost:80`r`n" }
-$text = $text -replace '(?m)^Listen .*', 'Listen 80'
+$text = $text -replace '(?m)^#?\s*ServerName .*', "ServerName localhost:$ApachePort"
+if ($text -notmatch '(?m)^ServerName ') { $text += "`r`nServerName localhost:$ApachePort`r`n" }
+$text = $text -replace '(?m)^Listen .*', "Listen $ApachePort"
 $text = $text -replace '(?m)^(\s*)DirectoryIndex .*', '$1DirectoryIndex index.php index.html'
 $text = $text -replace '(?m)^DocumentRoot .*', 'DocumentRoot "C:/m0/htdocs"'
 $text = $text -replace '\$\{SRVROOT\}/htdocs', 'C:/m0/htdocs'
@@ -398,7 +418,21 @@ if ($syntax -notmatch 'Syntax OK') {
 }
 Info "Apache version: $((& $httpd -v | Select-Object -First 1))"
 
-# --- 8. Service Apache (nama default panel: Apache2.4) -------------------------
+# --- 8. Service Apache (apache-spanel) ----------------------------------------
+# Migrasi dari nama lama: service Apache2.4 peninggalan setup lama HANYA
+# dihapus bila binary-nya dari $M0Dir. Service Apache2.4 milik aplikasi
+# lain TIDAK disentuh - fail keras.
+$oldSvc = Get-Service -Name "Apache2.4" -ErrorAction SilentlyContinue
+if ($null -ne $oldSvc) {
+    $old = Get-CimInstance Win32_Service -Filter "Name='Apache2.4'"
+    if ($old.PathName -match [regex]::Escape($M0Dir)) {
+        Info "Service lama Apache2.4 (milik setup ini) ditemukan, migrasi ke $ApacheServiceName"
+        Stop-Service -Name "Apache2.4" -ErrorAction SilentlyContinue
+        & $httpd -k uninstall -n "Apache2.4"
+    } else {
+        Fail "Service Apache2.4 sudah ada tapi bukan dari $M0Dir (milik XAMPP/aplikasi lain?). Stop/uninstall service itu dulu."
+    }
+}
 $existing = Get-Service -Name $ApacheServiceName -ErrorAction SilentlyContinue
 if ($null -ne $existing) {
     $svc = Get-CimInstance Win32_Service -Filter "Name='$ApacheServiceName'"
@@ -415,7 +449,7 @@ if ($svc.Status -ne "Running") { Start-Service -Name $ApacheServiceName }
 Start-Sleep -Seconds 2
 $svc = Get-Service -Name $ApacheServiceName
 if ($svc.Status -ne "Running") {
-    Fail "Service $ApacheServiceName gagal start. Kemungkinan port 80 dipakai aplikasi lain - cek dengan: netstat -ano | findstr :80"
+    Fail "Service $ApacheServiceName gagal start. Kemungkinan port $ApachePort dipakai aplikasi lain - cek dengan: netstat -ano | findstr :$ApachePort"
 }
 Info "Service $ApacheServiceName running"
 
@@ -438,6 +472,7 @@ if ([string]::IsNullOrWhiteSpace($budiHash) -or [string]::IsNullOrWhiteSpace($an
 $config = [ordered]@{
     port           = 8888
     data_dir       = $PanelDir
+    apache_service = $ApacheServiceName
     ad_enabled     = $true
     ad_server      = "dummy"
     ad_domain      = "siws.local"
@@ -458,12 +493,19 @@ Write-Host "Sekarang set password admin panel (ketik 2x saat diminta):"
 & $panelExe admin set-password
 
 # --- 11. Service panel ---------------------------------------------------------
+# panel.json baru ditulis di langkah 9, jadi service panel yang sudah jalan
+# HARUS di-restart supaya config baru (termasuk apache_service) ter-load.
 $panelSvc = Get-Service -Name "SPanelPlus" -ErrorAction SilentlyContinue
 if ($null -eq $panelSvc) {
     Info "Install service panel SPanelPlus"
     & $panelExe service install
 } else {
     Info "Service SPanelPlus sudah ada, skip install"
+    if ($panelSvc.Status -eq "Running") {
+        Info "Restart service SPanelPlus supaya panel.json baru ter-load"
+        Restart-Service -Name "SPanelPlus" -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+    }
 }
 $panelSvc = Get-Service -Name "SPanelPlus"
 if ($panelSvc.Status -ne "Running") {
@@ -481,9 +523,9 @@ Write-Host ""
 Write-Host ""
 Write-Host "SETUP SELESAI." -ForegroundColor Green
 Write-Host "  Panel UI : http://127.0.0.1:8888 (login pakai password admin yang baru lu set)"
-Write-Host "  Dummy web: http://127.0.0.1/app-php82/?check  (harus 8.2)"
-Write-Host "             http://127.0.0.1/app-php83/?check  (harus 8.3)"
-Write-Host "             http://127.0.0.1/app-laravel/      (tanpa /public)"
+Write-Host "  Dummy web: $apacheBase/app-php82/?check  (harus 8.2)"
+Write-Host "             $apacheBase/app-php83/?check  (harus 8.3)"
+Write-Host "             $apacheBase/app-laravel/      (tanpa /public)"
 Write-Host "  AD dummy : login Akun AD -> budi / budi-kuat-1 (lolos), andi / andi-kuat-1 (ditolak)"
 Write-Host "  Lanjut smoke test urut: M1 (service/boot) -> M2 (CLI) -> M3 (UI) -> M4 (supervisor) -> M5 (auth) -> M5-AD."
 Write-Host "  Catatan: uji boot M1 tetap manual - restart mesin, lalu buka UI tanpa start manual apa pun."

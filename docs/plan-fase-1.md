@@ -86,7 +86,7 @@ Satu-satunya jejak panel di instalasi Apache: blok `LoadModule fcgid_module` + s
 {
   "settings": {
     "apache_home": "C:/xampp/apache",       // atau path standalone
-    "apache_service": "Apache2.4",
+    "apache_service": "apache-spanel",
     "document_root": "C:/xampp/htdocs",
     "panel_port": 8888
   },

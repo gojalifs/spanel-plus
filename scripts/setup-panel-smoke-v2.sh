@@ -17,15 +17,16 @@
 #      salin ke C:\Panel\panel.exe (di-skip kalau sumbernya sudah file itu).
 #   2. Cek VC++ Redistributable (vcruntime140.dll) - berhenti keras kalau
 #      belum ada, seperti setup M0.
-#   3. Download Apache 2.4.69 VS18 + mod_fcgid VS18 yang cocok (URL
-#      terverifikasi 2026-10-23 & 2026-10-25), ekstrak ke C:\m0\Apache24.
+#   3. Pilih port Apache (default 80) lalu download Apache 2.4.69 VS18 +
+#      mod_fcgid VS18 yang cocok (URL terverifikasi 2026-10-23 & 2026-10-25),
+#      ekstrak ke C:\m0\Apache24.
 #   4. Download PHP 8.2 & 8.3 NTS x64 (discovery php.net + fallback arsip
 #      pinned), ekstrak ke C:\m0\php\8.2 dan 8.3, buat php.ini.
 #   5. Tulis proyek dummy M0 persis dari kit (app-php82/83, app-laravel,
 #      conf-m0-projects.conf) ke C:\m0\htdocs.
 #   6. Patch httpd.conf (backup sekali, idempotent) + baris Include M0 dan
 #      baris Include generated panel; httpd -t harus Syntax OK.
-#   7. Install + start service Apache (nama default panel: Apache2.4).
+#   7. Install + start service Apache (apache-spanel).
 #   8. Tulis C:\Panel\panel.json (port 8888, AD dummy siws.local/IS;
 #      hash dibuat non-interaktif dari password dummy smoke test).
 #   9. panel admin set-password (interaktif - password pilihan lu, ketik 2x).
@@ -107,6 +108,32 @@ fi
 
 # --- 2. VC Redistributable (loud, sama seperti setup M0) -----------------------
 [ -f "$SYS32/vcruntime140.dll" ] || fail "vcruntime140.dll tidak ada - install dulu VC++ Redistributable 2015-2022 x64: https://aka.ms/vs/17/release/vc_redist.x64.exe lalu jalankan ulang."
+
+# --- Port Apache: dipilih di awal setting Apache ---------------------------
+# Env APACHE_PORT menang (untuk jalan non-interaktif); kalau tidak di-set,
+# script bertanya (default 80, Enter saja untuk pakai default). Port ini
+# dipakai patch httpd.conf (Listen + ServerName), pesan fail service, dan
+# URL verifikasi akhir. Port panel (8888) tidak boleh dipakai di sini.
+if [ -z "${APACHE_PORT:-}" ]; then
+  printf 'Port Apache [80]: '
+  read -r APACHE_PORT || true
+  if [ -z "$APACHE_PORT" ]; then APACHE_PORT=80; fi
+fi
+case "$APACHE_PORT" in
+  ''|*[!0-9]*) fail "Port Apache harus angka, dapat: '$APACHE_PORT'" ;;
+esac
+if [ "$APACHE_PORT" -lt 1 ] || [ "$APACHE_PORT" -gt 65535 ]; then
+  fail "Port Apache di luar rentang 1-65535: $APACHE_PORT"
+fi
+if [ "$APACHE_PORT" -eq 8888 ]; then
+  fail "Port Apache tidak boleh sama dengan port panel (8888)"
+fi
+if [ "$APACHE_PORT" -eq 80 ]; then
+  APACHE_BASE="http://127.0.0.1"
+else
+  APACHE_BASE="http://127.0.0.1:$APACHE_PORT"
+fi
+info "Port Apache: $APACHE_PORT"
 
 # --- 3. Apache + mod_fcgid (URL VS18 terverifikasi) ---------------------------
 # Apache Lounge sudah pindah dari VS17 ke VS18; keduanya harus sama-sama
@@ -338,9 +365,9 @@ CONF="$M0/Apache24/conf/httpd.conf"
 # Apache Lounge stock conf uses: Define SRVROOT "C:/Apache24"
 sed -i -E 's|^Define SRVROOT .*|Define SRVROOT "C:/m0/Apache24"|' "$CONF"
 sed -i -E 's|^ServerRoot .*|ServerRoot "C:/m0/Apache24"|' "$CONF"
-sed -i -E 's|^#?[[:space:]]*ServerName .*|ServerName localhost:80|' "$CONF"
-grep -q '^ServerName ' "$CONF" || echo 'ServerName localhost:80' >> "$CONF"
-sed -i -E 's|^Listen .*|Listen 80|' "$CONF"
+sed -i -E "s|^#?[[:space:]]*ServerName .*|ServerName localhost:$APACHE_PORT|" "$CONF"
+grep -q '^ServerName ' "$CONF" || echo "ServerName localhost:$APACHE_PORT" >> "$CONF"
+sed -i -E "s|^Listen .*|Listen $APACHE_PORT|" "$CONF"
 sed -i -E 's|^([[:space:]]*)DirectoryIndex .*|\1DirectoryIndex index.php index.html|' "$CONF"
 sed -i -E 's|^DocumentRoot .*|DocumentRoot "C:/m0/htdocs"|' "$CONF"
 sed -i -E 's|<Directory "\$\{SRVROOT\}/htdocs">|<Directory "C:/m0/htdocs">|' "$CONF"
@@ -376,22 +403,34 @@ echo "$syntax"
 printf '%s' "$syntax" | grep -q 'Syntax OK' || fail "httpd -t TIDAK Syntax OK. Output persisnya di atas - kirim ke Muse, jangan paksa start Apache."
 "$M0/Apache24/bin/httpd.exe" -v
 
-# --- 8. Service Apache (nama default panel: Apache2.4) -------------------------
+# --- 8. Service Apache (apache-spanel) ----------------------------------------
+# Migrasi dari nama lama: service Apache2.4 peninggalan setup lama HANYA
+# dihapus bila binary-nya dari C:\m0 (milik setup ini). Service Apache2.4
+# milik aplikasi lain (bukan dari m0) TIDAK disentuh - fail keras.
 if sc query Apache2.4 >/dev/null 2>&1; then
-  if ! sc qc Apache2.4 2>/dev/null | grep -qi 'm0'; then
-    fail "Service Apache2.4 sudah ada tapi bukan dari C:\\m0 (milik XAMPP/aplikasi lain?). Stop/uninstall service itu dulu, atau jalankan ulang setelah mengganti nama service di script."
+  if sc qc Apache2.4 2>/dev/null | grep -qi 'm0'; then
+    info "Service lama Apache2.4 (milik setup ini) ditemukan, migrasi ke apache-spanel"
+    net stop Apache2.4 >/dev/null 2>&1 || true
+    "$M0/Apache24/bin/httpd.exe" -k uninstall -n Apache2.4 || true
+  else
+    fail "Service Apache2.4 sudah ada tapi bukan dari C:\\m0 (milik XAMPP/aplikasi lain?). Stop/uninstall service itu dulu."
   fi
-  info "Service Apache2.4 sudah ada (milik setup ini), skip install"
-else
-  info "Install service Apache Apache2.4"
-  "$M0/Apache24/bin/httpd.exe" -k install -n Apache2.4 || true
 fi
-if ! sc query Apache2.4 2>/dev/null | grep -q RUNNING; then
-  net start Apache2.4 || true
+if sc query apache-spanel >/dev/null 2>&1; then
+  if ! sc qc apache-spanel 2>/dev/null | grep -qi 'm0'; then
+    fail "Service apache-spanel sudah ada tapi bukan dari C:\\m0 (milik aplikasi lain?). Stop/uninstall service itu dulu."
+  fi
+  info "Service apache-spanel sudah ada (milik setup ini), skip install"
+else
+  info "Install service Apache apache-spanel"
+  "$M0/Apache24/bin/httpd.exe" -k install -n apache-spanel || true
+fi
+if ! sc query apache-spanel 2>/dev/null | grep -q RUNNING; then
+  net start apache-spanel || true
   sleep 2
 fi
-sc query Apache2.4 2>/dev/null | grep -q RUNNING || fail "Service Apache2.4 gagal start. Kemungkinan port 80 dipakai aplikasi lain - cek dengan: netstat -ano | findstr :80"
-info "Service Apache2.4 running"
+sc query apache-spanel 2>/dev/null | grep -q RUNNING || fail "Service apache-spanel gagal start. Kemungkinan port $APACHE_PORT dipakai aplikasi lain - cek dengan: netstat -ano | findstr :$APACHE_PORT"
+info "Service apache-spanel running"
 
 # --- 9. panel.json (backup sekali, hash dummy non-interaktif) ------------------
 PANEL_JSON="$PANEL_DIR/panel.json"
@@ -411,6 +450,7 @@ cat > "$PANEL_JSON" <<EOF
 {
   "port": 8888,
   "data_dir": "C:/Panel",
+  "apache_service": "apache-spanel",
   "ad_enabled": true,
   "ad_server": "dummy",
   "ad_domain": "siws.local",
@@ -430,7 +470,7 @@ cat > "$PANEL_JSON" <<EOF
   ]
 }
 EOF
-info "panel.json ditulis (port 8888, data_dir C:/Panel, AD dummy siws.local/IS)"
+info "panel.json ditulis (port 8888, data_dir C:/Panel, apache_service apache-spanel, AD dummy siws.local/IS)"
 
 # --- 10. Password admin (interaktif, pilihan lu sendiri) -----------------------
 echo ""
@@ -438,8 +478,16 @@ echo "Sekarang set password admin panel (ketik 2x saat diminta):"
 "$panel_exe" admin set-password
 
 # --- 11. Service panel ---------------------------------------------------------
+# panel.json baru ditulis di langkah 9, jadi service panel yang sudah jalan
+# HARUS di-restart supaya config baru (termasuk apache_service) ter-load;
+# kalau tidak, panel tetap memegang config lama di memori.
 if sc query SPanelPlus >/dev/null 2>&1; then
   info "Service SPanelPlus sudah ada, skip install"
+  if sc query SPanelPlus 2>/dev/null | grep -q RUNNING; then
+    info "Restart service SPanelPlus supaya panel.json baru ter-load"
+    net stop SPanelPlus >/dev/null 2>&1 || true
+    sleep 1
+  fi
 else
   info "Install service panel SPanelPlus"
   "$panel_exe" service install || true
@@ -460,9 +508,9 @@ echo ""
 echo ""
 echo "SETUP SELESAI."
 echo "  Panel UI : http://127.0.0.1:8888 (login pakai password admin yang baru lu set)"
-echo "  Dummy web: http://127.0.0.1/app-php82/?check  (harus 8.2)"
-echo "             http://127.0.0.1/app-php83/?check  (harus 8.3)"
-echo "             http://127.0.0.1/app-laravel/      (tanpa /public)"
+echo "  Dummy web: $APACHE_BASE/app-php82/?check  (harus 8.2)"
+echo "             $APACHE_BASE/app-php83/?check  (harus 8.3)"
+echo "             $APACHE_BASE/app-laravel/      (tanpa /public)"
 echo "  AD dummy : login Akun AD -> budi / budi-kuat-1 (lolos), andi / andi-kuat-1 (ditolak)"
 echo "  Lanjut smoke test urut: M1 (service/boot) -> M2 (CLI) -> M3 (UI) -> M4 (supervisor) -> M5 (auth) -> M5-AD."
 echo "  Catatan: uji boot M1 tetap manual - restart mesin, lalu buka UI tanpa start manual apa pun."

@@ -19,9 +19,12 @@ const FileName = "panel.json"
 // served by the panel service itself, never by the managed Apache).
 const DefaultPort = 8888
 
-// DefaultApacheService is the Windows service name of a stock
-// Apache 2.4 installation (XAMPP and Apache Lounge both use it).
-const DefaultApacheService = "Apache2.4"
+// DefaultApacheService is the Windows service name of the Apache
+// install this panel manages. It intentionally differs from the stock
+// "Apache2.4" name (XAMPP and Apache Lounge both use that) so a
+// panel-managed Apache never collides with another stock install on
+// the same machine.
+const DefaultApacheService = "apache-spanel"
 
 // Config is the panel-level configuration.
 type Config struct {
