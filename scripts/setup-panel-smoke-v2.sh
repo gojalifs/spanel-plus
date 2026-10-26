@@ -451,6 +451,7 @@ cat > "$PANEL_JSON" <<EOF
   "port": 8888,
   "data_dir": "C:/Panel",
   "apache_service": "apache-spanel",
+  "apache_home": "C:/m0/Apache24",
   "ad_enabled": true,
   "ad_server": "dummy",
   "ad_domain": "siws.local",
@@ -470,7 +471,7 @@ cat > "$PANEL_JSON" <<EOF
   ]
 }
 EOF
-info "panel.json ditulis (port 8888, data_dir C:/Panel, apache_service apache-spanel, AD dummy siws.local/IS)"
+info "panel.json ditulis (port 8888, data_dir C:/Panel, apache_service apache-spanel, apache_home C:/m0/Apache24, AD dummy siws.local/IS)"
 
 # --- 10. Password admin (interaktif, pilihan lu sendiri) -----------------------
 echo ""

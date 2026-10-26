@@ -473,6 +473,7 @@ $config = [ordered]@{
     port           = 8888
     data_dir       = $PanelDir
     apache_service = $ApacheServiceName
+    apache_home    = (($M0Dir -replace '\\', '/') + "/Apache24")
     ad_enabled     = $true
     ad_server      = "dummy"
     ad_domain      = "siws.local"

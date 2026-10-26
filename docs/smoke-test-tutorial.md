@@ -33,8 +33,9 @@ diakali manual.
 **Verifikasi setup lolos bila semua ini benar:**
 
 - `panel.exe version` menampilkan v0.6.2-m5.
-- `panel.exe doctor` menjelaskan tiap baris (satu-satunya WARN yang
-  wajar: `panel-port`, by design).
+- `panel.exe doctor`: `apache-home` harus `C:\m0\Apache24` (bukan
+  auto-discovered XAMPP); `panel-port` yang tidak hijau adalah wajar
+  selagi service panel hidup (lihat troubleshooting).
 - `http://127.0.0.1/app-php82/?check` membalas `php=8.2.x`.
 - `http://127.0.0.1/app-php83/?check` membalas `php=8.3.x`.
 - `http://127.0.0.1/app-laravel/` tampil tanpa perlu `/public`.
@@ -345,5 +346,7 @@ persis kalau ada, plus:
 | `php.exe` / `httpd.exe` error VCRUNTIME140.dll | VC Redistributable x64 belum terpasang / perlu restart |
 | Service apache-spanel sudah ada tapi bukan dari `C:\m0` | Milik aplikasi lain — stop/uninstall dulu sebelum setup |
 | Service lama Apache2.4 (dari setup sebelumnya) | Dimigrasi otomatis ke apache-spanel saat setup dijalankan ulang |
+| doctor `apache-home` menunjuk XAMPP (auto-discovered) | `panel.json` tidak mengunci `apache_home` — tambah `"apache_home": "C:/m0/Apache24"`, restart `SPanelPlus`, jalankan `doctor` lagi |
+| doctor FAIL `panel-port` padahal panel jalan | Port dipegang service panel sendiri — cek PID-nya `panel.exe` (`netstat -ano \| findstr :8888`); by design (doctor API menampilkan WARN, doctor CLI menampilkan FAIL) |
 | Port Apache dipakai aplikasi lain | Cek `netstat -ano \| findstr :<port>`, stop dulu service itu (IIS/XAMPP/Skype) |
 | Doctor WARN `panel-port` | By design, bukan kegagalan |
