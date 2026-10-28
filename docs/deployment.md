@@ -179,7 +179,11 @@ tidak hilang, hanya perlu login ulang.
   Manager → tombol Extension → checklist), tanpa edit
   `php.ini` manual. Checklist berlaku per versi PHP, bukan
   per proyek: mengubah extension PHP 8.2 memengaruhi semua
-  proyek yang memakai 8.2. Sebelum menulis, panel mem-backup
+  proyek yang memakai 8.2. Kotak tercentang berarti extension
+  sedang aktif — aktif di `php.ini` atau sedang termuat
+  (`php -m`) — sehingga extension bawaan (Core, date, dsb.)
+  tampil tercentang meski tidak punya baris ini (dan tidak
+  bisa diutak-atik). Sebelum menulis, panel mem-backup
   `php.ini` ke file `php.ini.panel-bak-<timestamp>` di folder
   yang sama, lalu memverifikasi dengan `php -m` sesudah
   tulis; bila extension tidak termuat sesuai harapan, backup

@@ -192,7 +192,12 @@ async function showModules(version) {
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.dataset.name = e.name;
-      const enabled = e.ini_state === 'enabled';
+      // Tercentang = aktif di php.ini ATAU sedang termuat (php -m).
+      // Yang kedua penting buat extension bawaan (Core, date, dsb.):
+      // mereka termuat tanpa baris ini, jadi tanpa ini mereka tampil
+      // tidak tercentang padahal aktif. Extension rusak (baris ini
+      // aktif tapi tidak termuat) tetap tercentang, sesuai konfigurasinya.
+      const enabled = e.ini_state === 'enabled' || e.status === 'active';
       cb.checked = enabled;
       extState.initial[e.name] = enabled;
       if (!e.toggleable) cb.disabled = true;
@@ -220,10 +225,14 @@ async function saveExtensions() {
   }
   try {
     const res = await api('POST', '/api/v1/php/' + encodeURIComponent(extState.version) + '/extensions', { extensions: changes });
-    let msg = 'Extension disimpan.';
-    if (res.auto_enabled && res.auto_enabled.length) msg += ' Otomatis ikut aktif: ' + res.auto_enabled.join(', ') + '.';
-    if (res.backup_path) msg += ' Backup: ' + res.backup_path;
-    toast(msg);
+    if (!res.changed) {
+      toast('Tidak ada perubahan extension.');
+    } else {
+      let msg = 'Extension disimpan.';
+      if (res.auto_enabled && res.auto_enabled.length) msg += ' Otomatis ikut aktif: ' + res.auto_enabled.join(', ') + '.';
+      if (res.backup_path) msg += ' Backup: ' + res.backup_path;
+      toast(msg);
+    }
     showModules(extState.version);
   } catch (e) {
     toast(e.message, false);
