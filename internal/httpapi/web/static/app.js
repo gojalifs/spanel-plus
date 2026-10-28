@@ -5,22 +5,66 @@
 
 const $ = (id) => document.getElementById(id);
 
+// ---------- loading overlay ----------
+// Shown only when a request takes longer than 150 ms, so fast local
+// calls don't flicker. A counter keeps it up while several requests
+// overlap (loadAll fires overview + projects + processes + doctor).
+let loadingCount = 0;
+let loadingTimer = null;
+
+function setLoading(delta) {
+  loadingCount = Math.max(0, loadingCount + delta);
+  if (loadingCount > 0 && loadingTimer === null) {
+    loadingTimer = setTimeout(() => {
+      loadingTimer = null;
+      if (loadingCount > 0) $('loading-overlay').hidden = false;
+    }, 150);
+  } else if (loadingCount === 0) {
+    if (loadingTimer !== null) {
+      clearTimeout(loadingTimer);
+      loadingTimer = null;
+    }
+    $('loading-overlay').hidden = true;
+  }
+}
+
 async function api(method, path, body) {
-  const opts = { method: method, headers: {} };
-  if (body !== undefined) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
+  setLoading(1);
+  try {
+    const opts = { method: method, headers: {} };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(path, opts);
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) {
+      showLogin();
+      throw new Error(data.error || 'Sesi habis — login lagi.');
+    }
+    if (!res.ok) {
+      throw new Error(data.error || ('HTTP ' + res.status));
+    }
+    return data;
+  } finally {
+    setLoading(-1);
   }
-  const res = await fetch(path, opts);
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401) {
-    showLogin();
-    throw new Error(data.error || 'Sesi habis — login lagi.');
+}
+
+// ---------- sidebar navigation ----------
+
+const views = ['overview', 'php', 'projects', 'project-form', 'processes'];
+
+function showView(name) {
+  for (const v of views) {
+    const sec = $('view-' + v);
+    if (sec) sec.hidden = v !== name;
   }
-  if (!res.ok) {
-    throw new Error(data.error || ('HTTP ' + res.status));
-  }
-  return data;
+  document.querySelectorAll('.nav-item').forEach((b) => {
+    b.classList.toggle('active', b.dataset.view === name);
+  });
+  // On mobile the sidebar is off-canvas: close it after choosing.
+  document.body.classList.remove('sidebar-open');
 }
 
 // ---------- M5: login admin ----------
@@ -28,12 +72,14 @@ async function api(method, path, body) {
 function showLogin() {
   $('login-card').hidden = false;
   $('dashboard').hidden = true;
+  $('sidebar').hidden = true;
   $('btn-logout').hidden = true;
 }
 
 function showDashboard() {
   $('login-card').hidden = true;
   $('dashboard').hidden = false;
+  $('sidebar').hidden = false;
   $('btn-logout').hidden = false;
 }
 
@@ -394,6 +440,7 @@ async function removeProject(name) {
 
 function fillForm(p) {
   editingName = p.name;
+  showView('project-form');
   $('project-form-title').textContent = 'Edit proyek — ' + p.name;
   $('pf-submit').textContent = 'Simpan & apply';
   $('pf-name').value = p.name;
@@ -420,6 +467,13 @@ function resetForm() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.nav-item').forEach((b) => {
+    b.addEventListener('click', () => showView(b.dataset.view));
+  });
+  $('btn-sidebar-toggle').addEventListener('click', () => {
+    document.body.classList.toggle('sidebar-open');
+  });
+
   $('php-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     try {
@@ -454,6 +508,7 @@ document.addEventListener('DOMContentLoaded', () => {
         toast('Proyek ' + payload.name + ' ditambah & di-apply.');
       }
       resetForm();
+      showView('projects');
       loadAll();
     } catch (e) {
       toast(e.message, false);

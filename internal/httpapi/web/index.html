@@ -7,134 +7,168 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header>
-  <h1>{{.Name}}</h1>
-  <span class="badge">v{{.Version}}</span>
-  <span id="apache-chip" class="badge">Apache: …</span>
-  <button id="btn-apache-restart" type="button">Restart Apache</button>
-  <button id="btn-apache-test" type="button">Tes config</button>
-  <button id="btn-logout" type="button" hidden>Logout</button>
-</header>
+<div id="app-layout">
+  <aside id="sidebar" hidden>
+    <div class="brand">SPanel+ <span class="badge">v{{.Version}}</span></div>
+    <nav class="nav">
+      <button type="button" class="nav-item active" data-view="overview">Ringkasan</button>
+      <button type="button" class="nav-item" data-view="php">Versi PHP</button>
+      <button type="button" class="nav-item" data-view="projects">Proyek</button>
+      <button type="button" class="nav-item" data-view="project-form">Form Proyek</button>
+      <button type="button" class="nav-item" data-view="processes">Proses</button>
+    </nav>
+    <div class="sidebar-foot muted">port {{.Port}} · sesi 10 menit tanpa aktivitas</div>
+  </aside>
 
-<div id="toast" class="toast" hidden></div>
+  <div id="main-col">
+    <header>
+      <button id="btn-sidebar-toggle" type="button" aria-label="Menu">☰</button>
+      <h1>{{.Name}}</h1>
+      <span id="apache-chip" class="badge">Apache: …</span>
+      <span class="header-actions">
+        <button id="btn-apache-restart" type="button">Restart Apache</button>
+        <button id="btn-apache-test" type="button">Tes config</button>
+        <button id="btn-logout" type="button" hidden>Logout</button>
+      </span>
+    </header>
 
-<main>
-  <section class="card" id="login-card" hidden>
-    <h2>Login</h2>
-    <p id="login-hint" class="muted">Panel ini hanya untuk admin. Sesi berakhir sesudah 10 menit tanpa aktivitas.</p>
-    <div id="login-modes">
-      <button type="button" id="login-mode-local" class="active">Akun panel</button>
-      <button type="button" id="login-mode-ad">Akun AD</button>
-    </div>
-    <form id="login-form" class="inline-form">
-      <input id="login-username" type="text" placeholder="Username AD" size="30" autocomplete="username" hidden>
-      <input id="login-password" type="password" placeholder="Password admin" size="30" required autocomplete="current-password">
-      <button type="submit">Login</button>
-    </form>
-    <p class="muted">Pertama kali? Di server, jalankan: <code>panel admin set-password</code> — lalu login di sini.</p>
-  </section>
-  <div id="dashboard">
-  <section class="cards-row">
-    <div class="card stat"><h2>Proyek aktif</h2><p id="stat-projects" class="big">…</p></div>
-    <div class="card stat"><h2>Versi PHP</h2><p id="stat-php" class="big">…</p></div>
-    <div class="card stat"><h2>Apache</h2><p id="stat-apache" class="big">…</p><p id="stat-apache-name" class="muted"></p></div>
-    <div class="card stat"><h2>Panel</h2><p id="stat-panel" class="big">…</p><p class="muted">port {{.Port}}</p></div>
-  </section>
+    <div id="toast" class="toast" hidden></div>
 
-  <section class="card">
-    <h2>Versi PHP</h2>
-    <table id="php-table">
-      <thead><tr><th>Versi</th><th>Folder</th><th></th></tr></thead>
-      <tbody><tr><td colspan="3" class="muted">Memuat…</td></tr></tbody>
-    </table>
-    <form id="php-form" class="inline-form">
-      <input id="php-path" type="text" placeholder="Folder PHP, mis. C:\php\8.3" size="34" required>
-      <button type="submit">Daftarkan versi PHP</button>
-      <span class="muted">Versi terdeteksi otomatis dari <code>php.exe -v</code>; build TS ditolak (fcgid butuh NTS).</span>
-    </form>
-    <div id="php-modules" hidden>
-      <h3>Extension (<span id="php-modules-title"></span>)</h3>
-      <p class="muted">Centang extension yang mau aktif, lalu Simpan. Perubahan hanya berlaku untuk versi PHP ini (semua proyek yang memakainya ikut berubah). php.ini di-backup dulu sebelum ditulis; kalau extension gagal termuat, php.ini dikembalikan.</p>
-      <div id="php-ext-list"></div>
-      <button id="php-ext-save" type="button">Simpan extension</button>
-      <p id="php-ext-note" class="muted"></p>
-    </div>
-  </section>
+    <main>
+      <section class="card" id="login-card" hidden>
+        <h2>Login</h2>
+        <p id="login-hint" class="muted">Panel ini hanya untuk admin. Sesi berakhir sesudah 10 menit tanpa aktivitas.</p>
+        <div id="login-modes">
+          <button type="button" id="login-mode-local" class="active">Akun panel</button>
+          <button type="button" id="login-mode-ad">Akun AD</button>
+        </div>
+        <form id="login-form" class="inline-form">
+          <input id="login-username" type="text" placeholder="Username AD" size="30" autocomplete="username" hidden>
+          <input id="login-password" type="password" placeholder="Password admin" size="30" required autocomplete="current-password">
+          <button type="submit">Login</button>
+        </form>
+        <p class="muted">Pertama kali? Di server, jalankan: <code>panel admin set-password</code> — lalu login di sini.</p>
+      </section>
 
-  <section class="card">
-    <h2>Proyek</h2>
-    <table id="project-table">
-      <thead><tr>
-        <th>Nama</th><th>URL</th><th>Tipe</th><th>PHP</th><th>Aktif</th><th>Peringatan</th><th></th>
-      </tr></thead>
-      <tbody><tr><td colspan="7" class="muted">Memuat…</td></tr></tbody>
-    </table>
-    <div id="diff-panel" hidden>
-      <h3>Preview perubahan config — <span id="diff-title"></span></h3>
-      <pre id="diff-body" class="diff"></pre>
-      <button id="diff-apply" type="button">Apply perubahan ini</button>
-      <button id="diff-cancel" type="button">Batal</button>
-    </div>
-  </section>
+      <div id="dashboard">
+        <section class="view" id="view-overview">
+          <section class="cards-row">
+            <div class="card stat"><h2>Proyek aktif</h2><p id="stat-projects" class="big">…</p></div>
+            <div class="card stat"><h2>Versi PHP</h2><p id="stat-php" class="big">…</p></div>
+            <div class="card stat"><h2>Apache</h2><p id="stat-apache" class="big">…</p><p id="stat-apache-name" class="muted"></p></div>
+            <div class="card stat"><h2>Panel</h2><p id="stat-panel" class="big">…</p><p class="muted">port {{.Port}}</p></div>
+          </section>
+          <section class="card">
+            <h2>Doctor</h2>
+            <ul id="doctor-list"><li>Memuat…</li></ul>
+          </section>
+        </section>
 
-  <section class="card">
-    <h2>Proses CLI (Supervisor)</h2>
-    <table id="process-table">
-      <thead><tr>
-        <th>Proyek</th><th>Nama</th><th>Perintah</th><th>Status</th><th>PID</th><th>Restart</th><th></th>
-      </tr></thead>
-      <tbody><tr><td colspan="7" class="muted">Memuat…</td></tr></tbody>
-    </table>
-    <form id="run-form" class="inline-form">
-      <select id="run-project"></select>
-      <input id="run-command" type="text" placeholder="Perintah sekali jalan, mis. artisan migrate:status" size="40" required>
-      <button type="submit">Jalankan</button>
-      <span class="muted">Memakai php.exe versi proyek untuk perintah artisan/*.php.</span>
-    </form>
-    <pre id="run-output" class="diff" hidden></pre>
-    <div id="log-panel" hidden>
-      <h3>Log — <span id="log-title"></span></h3>
-      <pre id="log-body" class="diff"></pre>
-      <button id="log-close" type="button">Tutup log</button>
-    </div>
-  </section>
+        <section class="view" id="view-php" hidden>
+          <section class="card">
+            <h2>Versi PHP</h2>
+            <table id="php-table">
+              <thead><tr><th>Versi</th><th>Folder</th><th></th></tr></thead>
+              <tbody><tr><td colspan="3" class="muted">Memuat…</td></tr></tbody>
+            </table>
+            <form id="php-form" class="inline-form">
+              <input id="php-path" type="text" placeholder="Folder PHP, mis. C:\php\8.3" size="34" required>
+              <button type="submit">Daftarkan versi PHP</button>
+              <span class="muted">Versi terdeteksi otomatis dari <code>php.exe -v</code>; build TS ditolak (fcgid butuh NTS).</span>
+            </form>
+            <div id="php-modules" hidden>
+              <h3>Extension (<span id="php-modules-title"></span>)</h3>
+              <p class="muted">Centang extension yang mau aktif, lalu Simpan. Perubahan hanya berlaku untuk versi PHP ini (semua proyek yang memakainya ikut berubah). php.ini di-backup dulu sebelum ditulis; kalau extension gagal termuat, php.ini dikembalikan.</p>
+              <div id="php-ext-list"></div>
+              <button id="php-ext-save" type="button">Simpan extension</button>
+              <p id="php-ext-note" class="muted"></p>
+            </div>
+          </section>
+        </section>
 
-  <section class="card">
-    <h2 id="project-form-title">Tambah proyek</h2>
-    <form id="project-form">
-      <div class="grid">
-        <label>Nama <input id="pf-name" required pattern="[a-z][a-z0-9-]*" placeholder="wh-system"></label>
-        <label>URL path <input id="pf-url" required placeholder="/wh-system"></label>
-        <label>Folder proyek <input id="pf-path" required placeholder="C:\xampp\htdocs\wh-system"></label>
-        <label>Tipe
-          <select id="pf-type">
-            <option value="laravel">Laravel</option>
-            <option value="php-native">PHP native</option>
-            <option value="static">Static</option>
-          </select>
-        </label>
-        <label>Subfolder publik <input id="pf-public" placeholder="public (Laravel) / dist (static) / kosong"></label>
-        <label>Versi PHP <select id="pf-php"></select></label>
-        <label class="check"><input id="pf-enabled" type="checkbox" checked> Aktif</label>
+        <section class="view" id="view-projects" hidden>
+          <section class="card">
+            <h2>Proyek</h2>
+            <table id="project-table">
+              <thead><tr>
+                <th>Nama</th><th>URL</th><th>Tipe</th><th>PHP</th><th>Aktif</th><th>Peringatan</th><th></th>
+              </tr></thead>
+              <tbody><tr><td colspan="7" class="muted">Memuat…</td></tr></tbody>
+            </table>
+            <div id="diff-panel" hidden>
+              <h3>Preview perubahan config — <span id="diff-title"></span></h3>
+              <pre id="diff-body" class="diff"></pre>
+              <button id="diff-apply" type="button">Apply perubahan ini</button>
+              <button id="diff-cancel" type="button">Batal</button>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="view-project-form" hidden>
+          <section class="card">
+            <h2 id="project-form-title">Tambah proyek</h2>
+            <form id="project-form">
+              <div class="grid">
+                <label>Nama <input id="pf-name" required pattern="[a-z][a-z0-9-]*" placeholder="wh-system"></label>
+                <label>URL path <input id="pf-url" required placeholder="/wh-system"></label>
+                <label>Folder proyek <input id="pf-path" required placeholder="C:\xampp\htdocs\wh-system"></label>
+                <label>Tipe
+                  <select id="pf-type">
+                    <option value="laravel">Laravel</option>
+                    <option value="php-native">PHP native</option>
+                    <option value="static">Static</option>
+                  </select>
+                </label>
+                <label>Subfolder publik <input id="pf-public" placeholder="public (Laravel) / dist (static) / kosong"></label>
+                <label>Versi PHP <select id="pf-php"></select></label>
+                <label class="check"><input id="pf-enabled" type="checkbox" checked> Aktif</label>
+              </div>
+              <h3>Proses CLI proyek ini</h3>
+              <div id="pf-processes"></div>
+              <p>
+                <button type="button" id="pf-proc-add">+ Proses</button>
+                <button type="button" id="pf-proc-queue">Template: queue Laravel</button>
+                <button type="button" id="pf-proc-sched">Template: scheduler Laravel</button>
+              </p>
+              <button type="submit" id="pf-submit">Tambah &amp; apply</button>
+              <button type="button" id="pf-reset">Reset form</button>
+            </form>
+          </section>
+        </section>
+
+        <section class="view" id="view-processes" hidden>
+          <section class="card">
+            <h2>Proses CLI (Supervisor)</h2>
+            <table id="process-table">
+              <thead><tr>
+                <th>Proyek</th><th>Nama</th><th>Perintah</th><th>Status</th><th>PID</th><th>Restart</th><th></th>
+              </tr></thead>
+              <tbody><tr><td colspan="7" class="muted">Memuat…</td></tr></tbody>
+            </table>
+            <form id="run-form" class="inline-form">
+              <select id="run-project"></select>
+              <input id="run-command" type="text" placeholder="Perintah sekali jalan, mis. artisan migrate:status" size="40" required>
+              <button type="submit">Jalankan</button>
+              <span class="muted">Memakai php.exe versi proyek untuk perintah artisan/*.php.</span>
+            </form>
+            <pre id="run-output" class="diff" hidden></pre>
+            <div id="log-panel" hidden>
+              <h3>Log — <span id="log-title"></span></h3>
+              <pre id="log-body" class="diff"></pre>
+              <button id="log-close" type="button">Tutup log</button>
+            </div>
+          </section>
+        </section>
       </div>
-      <h3>Proses CLI proyek ini</h3>
-      <div id="pf-processes"></div>
-      <p>
-        <button type="button" id="pf-proc-add">+ Proses</button>
-        <button type="button" id="pf-proc-queue">Template: queue Laravel</button>
-        <button type="button" id="pf-proc-sched">Template: scheduler Laravel</button>
-      </p>
-      <button type="submit" id="pf-submit">Tambah &amp; apply</button>
-      <button type="button" id="pf-reset">Reset form</button>
-    </form>
-  </section>
-
-  <section class="card">
-    <h2>Doctor</h2>
-    <ul id="doctor-list"><li>Memuat…</li></ul>
-  </section>
+    </main>
   </div>
-</main>
+</div>
+
+<div id="loading-overlay" hidden>
+  <div class="spinner" role="status" aria-label="Memuat"></div>
+  <p>Memuat…</p>
+</div>
+
 <script src="/static/app.js"></script>
 </body>
 </html>
