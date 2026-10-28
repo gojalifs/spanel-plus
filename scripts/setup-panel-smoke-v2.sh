@@ -375,7 +375,19 @@ sed -i -E 's|<Directory "C:/m0/Apache24/htdocs">|<Directory "C:/m0/htdocs">|' "$
 # Uncomment modules we need (delimiter @ on purpose: the pattern itself
 # contains | for alternation, so | cannot be the s delimiter - that was
 # the "char 32: unknown option to s" bug, reproduced & fixed 2026-10-23)
-sed -i -E 's@^#(LoadModule (rewrite|alias|authz_core|dir|mime)_module .*)$@\1@' "$CONF"
+# Toleran spasi di depan # dan sesudahnya: baris "# LoadModule ..."
+# atau "  #LoadModule ..." harus ikut terbuka, bukan cuma "#LoadModule".
+sed -i -E 's@^[[:space:]]*#[[:space:]]*(LoadModule (rewrite|alias|authz_core|dir|mime)_module .*)$@\1@' "$CONF"
+# Kalau baris rewrite tidak ada sama sekali (bukan cuma dikomen),
+# uncomment di atas tidak menghasilkan apa-apa — tambahkan eksplisit.
+# rewrite_module WAJIB aktif: .htaccess Laravel membungkus semua rule
+# dalam <IfModule mod_rewrite.c>, jadi kalau modul ini mati, pretty URL
+# (mis. /login) 404 diam-diam sementara / jalan via DirectoryIndex.
+# Bug nyata 2026-10-28 di mesin max: httpd -M kosong untuk rewrite.
+if ! grep -qE '^[[:space:]]*LoadModule rewrite_module ' "$CONF"; then
+  printf '\r\nLoadModule rewrite_module modules/mod_rewrite.so\r\n' >> "$CONF"
+  info "LoadModule rewrite_module ditambahkan (barisnya tidak ada di httpd.conf)"
+fi
 if grep -qE '^[[:space:]]*LoadModule php' "$CONF"; then
   fail "httpd.conf masih memuat mod_php (LoadModule php...) - melanggar desain M0. Tempel baris itu ke Muse."
 fi
@@ -406,6 +418,11 @@ info "Test konfigurasi Apache"
 syntax="$("$M0/Apache24/bin/httpd.exe" -t 2>&1 || true)"
 echo "$syntax"
 printf '%s' "$syntax" | grep -q 'Syntax OK' || fail "httpd -t TIDAK Syntax OK. Output persisnya di atas - kirim ke Muse, jangan paksa start Apache."
+# Gate modul rewrite: httpd -t hanya cek sintaks, jadi modul yang mati
+# tetap lolos setup dan baru ketahuan saat pretty URL 404 (bug 2026-10-28).
+mods="$("$M0/Apache24/bin/httpd.exe" -M 2>&1 || true)"
+printf '%s' "$mods" | grep -q 'rewrite_module' || fail "rewrite_module TIDAK ke-load (httpd -M). Periksa LoadModule rewrite_module di httpd.conf dan file modules/mod_rewrite.so - jangan lanjutkan setup."
+info "rewrite_module ter-load (httpd -M)"
 "$M0/Apache24/bin/httpd.exe" -v
 
 # --- 8. Service Apache (apache-spanel) ----------------------------------------

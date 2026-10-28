@@ -386,7 +386,17 @@ $text = $text -replace '(?m)^(\s*)DirectoryIndex .*', '$1DirectoryIndex index.ph
 $text = $text -replace '(?m)^DocumentRoot .*', 'DocumentRoot "C:/m0/htdocs"'
 $text = $text -replace '\$\{SRVROOT\}/htdocs', 'C:/m0/htdocs'
 $text = $text -replace 'C:/m0/Apache24/htdocs', 'C:/m0/htdocs'
-$text = $text -replace '(?m)^#(LoadModule (rewrite|alias|authz_core|dir|mime)_module .*)$', '$1'
+$text = $text -replace '(?m)^\s*#\s*(LoadModule (rewrite|alias|authz_core|dir|mime)_module .*)$', '$1'
+# Kalau baris rewrite tidak ada sama sekali (bukan cuma dikomen),
+# uncomment di atas tidak menghasilkan apa-apa — tambahkan eksplisit.
+# rewrite_module WAJIB aktif: .htaccess Laravel membungkus semua rule
+# dalam <IfModule mod_rewrite.c>, jadi kalau modul ini mati, pretty URL
+# (mis. /login) 404 diam-diam sementara / jalan via DirectoryIndex.
+# Bug nyata 2026-10-28 di mesin max: httpd -M kosong untuk rewrite.
+if ($text -notmatch '(?m)^\s*LoadModule rewrite_module ') {
+    $text += "`r`nLoadModule rewrite_module modules/mod_rewrite.so`r`n"
+    Info "LoadModule rewrite_module ditambahkan (barisnya tidak ada di httpd.conf)"
+}
 if ($text -match '(?m)^\s*LoadModule php') {
     Fail "httpd.conf masih memuat mod_php (LoadModule php...) - melanggar desain M0. Tempel baris itu ke Muse."
 }
@@ -419,6 +429,13 @@ Write-Host $syntax
 if ($syntax -notmatch 'Syntax OK') {
     Fail "httpd -t TIDAK Syntax OK. Output persisnya di atas - kirim ke Muse, jangan paksa start Apache."
 }
+# Gate modul rewrite: httpd -t hanya cek sintaks, jadi modul yang mati
+# tetap lolos setup dan baru ketahuan saat pretty URL 404 (bug 2026-10-28).
+$mods = (& $httpd -M 2>&1) -join "`n"
+if ($mods -notmatch 'rewrite_module') {
+    Fail "rewrite_module TIDAK ke-load (httpd -M). Periksa LoadModule rewrite_module di httpd.conf dan file modules/mod_rewrite.so - jangan lanjutkan setup."
+}
+Info "rewrite_module ter-load (httpd -M)"
 Info "Apache version: $((& $httpd -v | Select-Object -First 1))"
 
 # --- 8. Service Apache (apache-spanel) ----------------------------------------
