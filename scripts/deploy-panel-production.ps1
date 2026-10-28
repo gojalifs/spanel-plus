@@ -35,9 +35,13 @@
     "Folder panel [C:\Panel]" (kosong = default) — sama
     seperti prompt Port Apache di setup. Parameter yang
     diisi selalu menang (untuk jalan non-interaktif).
+    WAJIB format Windows absolut dengan backslash
+    (mis. C:\Panel); slash (/) ditolak — prompt mengulang,
+    parameter yang salah langsung gagal.
 .PARAMETER M0Dir
     Folder M0. Bila tidak diisi, script bertanya
-    "Folder M0 [C:\m0]" (kosong = default).
+    "Folder M0 [C:\m0]" (kosong = default). Aturan format
+    sama seperti -PanelDir.
 .PARAMETER AdServer
     Server AD produksi, wajib ldaps://<fqdn-dc>:636 bila diisi.
     Kosong = mode admin-only (ad_enabled=false). Bila dikosongkan
@@ -125,13 +129,39 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 # Pola yang sama dengan prompt Port Apache di setup: default ditampilkan
 # di dalam kurung siku, jawaban kosong = default. Untuk jalan
 # non-interaktif (scheduled task dkk.), isi -PanelDir/-M0Dir eksplisit.
+# Path WAJIB gaya Windows absolut dengan backslash. Slash (/) ditolak:
+# panel.json memang memakai slash di dalamnya, tapi input script ini
+# harus backslash supaya Join-Path, pesan error, dan perbandingan path
+# konsisten — tanpa konversi diam-diam yang menutupi salah ketik.
+# Prompt mengulang sampai valid; parameter yang salah langsung gagal.
+function Test-WindowsPath([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+    if ($Path -match '/') { return $false }
+    return ($Path -match '^[a-zA-Z]:\\') -or ($Path -match '^\\\\')
+}
+
+function Read-WindowsPath([string]$Prompt, [string]$Default) {
+    while ($true) {
+        $in = Read-Host "$Prompt [$Default]"
+        if ([string]::IsNullOrWhiteSpace($in)) { return $Default }
+        $p = $in.Trim()
+        if (-not (Test-WindowsPath $p)) {
+            Write-Host "Path tidak valid: pakai format Windows absolut dengan backslash, mis. C:\Panel (slash / tidak diterima)." -ForegroundColor Yellow
+            continue
+        }
+        return $p
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($PanelDir)) {
-    $in = Read-Host "Folder panel [C:\Panel]"
-    if ([string]::IsNullOrWhiteSpace($in)) { $PanelDir = "C:\Panel" } else { $PanelDir = $in.Trim() }
+    $PanelDir = Read-WindowsPath "Folder panel" "C:\Panel"
+} elseif (-not (Test-WindowsPath $PanelDir)) {
+    Fail "-PanelDir harus path Windows absolut dengan backslash, mis. C:\Panel (dapat: $PanelDir)."
 }
 if ([string]::IsNullOrWhiteSpace($M0Dir)) {
-    $in = Read-Host "Folder M0 [C:\m0]"
-    if ([string]::IsNullOrWhiteSpace($in)) { $M0Dir = "C:\m0" } else { $M0Dir = $in.Trim() }
+    $M0Dir = Read-WindowsPath "Folder M0" "C:\m0"
+} elseif (-not (Test-WindowsPath $M0Dir)) {
+    Fail "-M0Dir harus path Windows absolut dengan backslash, mis. C:\m0 (dapat: $M0Dir)."
 }
 Info "Folder panel: $PanelDir"
 Info "Folder M0: $M0Dir"
