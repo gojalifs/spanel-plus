@@ -13,11 +13,11 @@
          conf-m0-projects.conf dari httpd.conf.
       4. Restart SPanelPlus (panel.json dibaca saat start) +
          httpd -t + gate httpd -M (rewrite_module & fcgid_module
-         wajib ke-load — modul mati lolos dari httpd -t, tapi
+         wajib ke-load - modul mati lolos dari httpd -t, tapi
          bikin pretty URL Laravel 404 diam-diam, bug 2026-10-28)
          + restart service Apache.
       5. Verifikasi: doctor (dengan pengecualian panel-port,
-         yang selalu FAIL dari CLI saat service jalan — itu
+         yang selalu FAIL dari CLI saat service jalan - itu
          artefak, bukan kerusakan), API panel, dan semua URL
          proyek aktif (status akhir < 400, sama seperti
          health check panel).
@@ -25,18 +25,18 @@
          untuk port panel, hanya dari subnet admin/IT.
     Yang TIDAK dilakukan script ini: mendaftarkan proyek/PHP
     (pilot sudah terdaftar), instal Apache/PHP, dan memasang
-    TLS reverse proxy (panel sendiri plain HTTP — lihat §7
+    TLS reverse proxy (panel sendiri plain HTTP - lihat bagian 7
     deployment.md bila port panel dibuka ke luar LAN).
     PERINGATAN: sesudah deployment, JANGAN re-run script setup
-    smoke — langkah 9 setup menulis ulang panel.json ke
+    smoke - langkah 9 setup menulis ulang panel.json ke
     default dummy (AD dummy aktif lagi).
 .PARAMETER PanelDir
     Folder panel. Bila tidak diisi, script bertanya
-    "Folder panel [C:\Panel]" (kosong = default) — sama
+    "Folder panel [C:\Panel]" (kosong = default) - sama
     seperti prompt Port Apache di setup. Parameter yang
     diisi selalu menang (untuk jalan non-interaktif).
     WAJIB format Windows absolut dengan backslash
-    (mis. C:\Panel); slash (/) ditolak — prompt mengulang,
+    (mis. C:\Panel); slash (/) ditolak - prompt mengulang,
     parameter yang salah langsung gagal.
 .PARAMETER M0Dir
     Folder M0. Bila tidak diisi, script bertanya
@@ -132,7 +132,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 # Path WAJIB gaya Windows absolut dengan backslash. Slash (/) ditolak:
 # panel.json memang memakai slash di dalamnya, tapi input script ini
 # harus backslash supaya Join-Path, pesan error, dan perbandingan path
-# konsisten — tanpa konversi diam-diam yang menutupi salah ketik.
+# konsisten - tanpa konversi diam-diam yang menutupi salah ketik.
 # Prompt mengulang sampai valid; parameter yang salah langsung gagal.
 function Test-WindowsPath([string]$Path) {
     if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
@@ -198,7 +198,7 @@ $adminPath = Join-Path $dataDir "admin.json"
 # Kalau tidak ada, membuang dummy = tidak ada jalan login sama sekali
 # saat AD bermasalah. (data_dir dari panel.json; default <PanelDir>\data.)
 if (-not (Test-Path $adminPath)) {
-    Fail "Akun admin lokal belum ada ($adminPath tidak ditemukan). Jalankan dulu: $panelExe admin set-password — lalu login sekali untuk memastikan — baru jalankan deployment ini."
+    Fail "Akun admin lokal belum ada ($adminPath tidak ditemukan). Jalankan dulu: $panelExe admin set-password - lalu login sekali untuk memastikan - baru jalankan deployment ini."
 }
 
 # --- 3. Tentukan mode AD -------------------------------------------------------
@@ -344,7 +344,7 @@ if ($doctorCode -ne 0 -and $realFails.Count -gt 0) {
     Fail "Doctor TIDAK SEHAT (FAIL: $($realFails -join ', ')). Perbaiki baris FAIL di atas."
 }
 if ($failNames -contains 'panel-port') {
-    Info "Doctor: panel-port FAIL ditoleransi (artefak CLI saat service jalan — port dipegang SPanelPlus sendiri)."
+    Info "Doctor: panel-port FAIL ditoleransi (artefak CLI saat service jalan - port dipegang SPanelPlus sendiri)."
 } else {
     Info "Doctor lulus."
 }
