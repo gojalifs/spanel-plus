@@ -71,6 +71,16 @@ Perhatian: script ini **berorientasi smoke test**. Sesudah
 dan §4 dulu (hapus dummy, ganti AD dummy dengan AD sungguhan,
 verifikasi doctor), baru §8 checklist go-live.
 
+Langkah produksi itu sudah diskripkan di
+`scripts/deploy-panel-production.ps1` (PowerShell sebagai
+Administrator, dijalankan sesudah smoke test + pilot selesai):
+backup `panel.json`, buang AD dummy (ke AD sungguhan via LDAPS
+atau ke mode admin-only), paksa `ad_allow_insecure_ldap=false`,
+opsional hapus dummy M0, gate `httpd -M` (rewrite + fcgid wajib
+ke-load), lalu verifikasi doctor, API panel, dan URL proyek
+aktif. Sesudah deployment, **jangan re-run script setup smoke** —
+langkah 9 setup menulis ulang `panel.json` ke default dummy.
+
 Saat setup bertanya `Port Apache [80]`, pilih port Apache produksi
 di sini. Port 80 berarti URL proyek tanpa port
 (`http://<server>/nama-proyek`); port lain berarti semua URL proyek
