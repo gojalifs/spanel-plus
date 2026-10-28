@@ -56,35 +56,40 @@ tetap jalan — tapi perubahan proyek lewat panel butuh keduanya hidup.
 
 ## 2. Instalasi
 
-### 2a. Jalur yang disarankan: setup script, lalu diproduksikan
+### 2a. Jalur yang disarankan: deploy script (setup + produksi sekaligus)
 
-Setup script (`scripts/setup-panel-smoke-v2.sh` untuk Git Bash,
-`scripts/setup-panel-smoke.ps1` untuk PowerShell) adalah jalur
-instalasi yang sudah terbukti. Ia mengurus: download Apache +
-mod_fcgid VS18, deteksi PHP 8.2/8.3, patch `httpd.conf`, service
-`apache-spanel`, `panel.json`, password admin, dan service
-`SPanelPlus`. Lokasi script bebas (boleh dari `D:\Panel`); tujuan
-install selalu `C:\Panel` dan `C:\m0`.
-
-Perhatian: script ini **berorientasi smoke test**. Sesudah
-`SETUP SELESAI`, jangan langsung dianggap produksi — kerjakan §3
-dan §4 dulu (hapus dummy, ganti AD dummy dengan AD sungguhan,
-verifikasi doctor), baru §8 checklist go-live.
-
-Langkah produksi itu sudah diskripkan di
 `scripts/deploy-panel-production.ps1` (PowerShell sebagai
-Administrator, dijalankan sesudah smoke test + pilot selesai):
-backup `panel.json`, buang AD dummy (ke AD sungguhan via LDAPS
-atau ke mode admin-only), paksa `ad_allow_insecure_ldap=false`,
-opsional hapus dummy M0, gate `httpd -M` (rewrite + fcgid wajib
-ke-load), lalu verifikasi doctor, API panel, dan URL proyek
-aktif. Sesudah deployment, **jangan re-run script setup smoke** —
+Administrator) adalah jalur utama: dari mesin kosong sampai
+produksi dalam satu jalan. Ia mendeteksi dulu apa yang sudah
+ada (di-skip) dan apa yang belum ada (dipasang), menampilkan
+rencana lengkap, dan baru bermutasi sesudah konfirmasi Y
+(kecuali -Force):
+- panel.exe disalin dari file panel*.exe sebelahan dengan script
+  (diutamakan panel-v*.exe terbaru) bila belum ada di PanelDir.
+- Apache di-download (discovery versi terbaru VS18 dari Apache
+  Lounge, fallback pinned 2.4.69) bila httpd.exe belum ada;
+  mod_fcgid pinned 2.3.10 VS18 bila .so-nya belum ada.
+- PHP 8.2/8.3/8.4 NTS x64 di-download per cabang (discovery patch
+  terbaru dari php.net, fallback arsip pinned) bila php.exe
+  cabang itu belum ada. Folder PHP yang sudah dicopy manual
+  di-skip, tidak di-download ulang.
+- httpd.conf di-patch idempotent (backup sekali .orig-m0),
+  service apache-spanel + SPanelPlus dipasang/dipastikan jalan.
+- panel.json dibuat baru langsung mode produksi bila belum ada,
+  atau dimodifikasi (AD dummy dibuang, ke AD sungguhan via LDAPS
+  atau ke mode admin-only, ad_allow_insecure_ldap=false) bila
+  sudah ada. Akun admin break-glass dibuat interaktif bila
+  belum ada. Opsional hapus dummy M0 (-RemoveDummies).
+- Verifikasi: httpd -t + gate httpd -M (rewrite + fcgid wajib
+  ke-load), doctor, API panel, URL proyek aktif (bila registry
+  belum ada karena mesin fresh, cek URL dilewati dengan
+  peringatan). Mesin fresh TIDAK dibuatkan dummy M0.
+Sesudah deployment, **jangan re-run script setup smoke** -
 langkah 9 setup menulis ulang `panel.json` ke default dummy.
-
-Saat setup bertanya `Port Apache [80]`, pilih port Apache produksi
-di sini. Port 80 berarti URL proyek tanpa port
-(`http://<server>/nama-proyek`); port lain berarti semua URL proyek
-mendapat suffix `:<port>`.
+Setup script smoke (`scripts/setup-panel-smoke-v2.sh` /
+`scripts/setup-panel-smoke.ps1`) tetap ada untuk jalur smoke
+test saja; untuk produksi, deploy script ini sudah mencakup
+langkah-langkah setup yang relevan.
 
 ### 2b. Jalur manual (tanpa setup script)
 
