@@ -324,6 +324,7 @@ Lalu verifikasi dari browser/terminal lain:
 | Doctor `apache-home` menunjuk XAMPP (auto-discovered) | `panel.json` tidak mengunci `apache_home` — isi `C:/m0/Apache24`, restart `SPanelPlus`. |
 | Doctor `mod-fcgid` fail | `mod_fcgid.so` tidak ada di Apache yang ditunjuk panel (biasanya karena salah `apache_home`), atau VS build mod_fcgid != VS build Apache. |
 | Doctor `httpd-syntax` fail | `httpd -t` gagal pada config Apache yang ditunjuk — baca outputnya; bila menunjuk XAMPP, itu config XAMPP, bukan panel. |
+| Proyek terdaftar tapi Apache tetap listing / tampil source PHP | IncludeOptional generated di `httpd.conf` tidak mengarah ke `<data_dir>/generated/apache` (bug setup lama menulis `C:/Panel/data/...`) — perbaiki path-nya, `httpd -t`, restart `apache-spanel`. |
 | Login bilang admin belum dibuat | `admin.json` tidak ada di `data_dir` service — hampir selalu karena password di-set lewat exe di folder lain (lihat §2c). Set ulang lewat `C:\Panel\panel.exe admin set-password`. |
 | Doctor FAIL `panel-port` padahal panel jalan | Port dipegang service panel sendiri — by design, lihat §8. |
 | `httpd.exe`/`php.exe` error `VCRUNTIME140.dll` | VC Redistributable x64 belum terpasang / perlu restart. |

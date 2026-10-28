@@ -347,6 +347,7 @@ persis kalau ada, plus:
 | Service apache-spanel sudah ada tapi bukan dari `C:\m0` | Milik aplikasi lain — stop/uninstall dulu sebelum setup |
 | Service lama Apache2.4 (dari setup sebelumnya) | Dimigrasi otomatis ke apache-spanel saat setup dijalankan ulang |
 | doctor `apache-home` menunjuk XAMPP (auto-discovered) | `panel.json` tidak mengunci `apache_home` — tambah `"apache_home": "C:/m0/Apache24"`, restart `SPanelPlus`, jalankan `doctor` lagi |
+| Proyek terdaftar tapi Apache tetap listing / tampil source PHP | IncludeOptional generated di `httpd.conf` salah arah (bug setup lama: `C:/Panel/data/generated/apache` vs `<data_dir>/generated/apache`) — perbaiki ke `C:/Panel/generated/apache/*.conf`, `httpd -t`, restart `apache-spanel` |
 | doctor FAIL `panel-port` padahal panel jalan | Port dipegang service panel sendiri — cek PID-nya `panel.exe` (`netstat -ano \| findstr :8888`); by design (doctor API menampilkan WARN, doctor CLI menampilkan FAIL) |
 | Port Apache dipakai aplikasi lain | Cek `netstat -ano \| findstr :<port>`, stop dulu service itu (IIS/XAMPP/Skype) |
 | Doctor WARN `panel-port` | By design, bukan kegagalan |

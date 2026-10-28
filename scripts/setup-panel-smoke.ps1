@@ -394,13 +394,16 @@ if ($text -notmatch 'conf-m0-projects\.conf') {
     $text += "`r`nInclude `"C:/m0/conf-m0-projects.conf`"`r`n"
 }
 $panelDataDir = ($PanelDir -replace '\\', '/')
-# IncludeOptional, bukan Include biasa: Include biasa gagal httpd -t bila
-# wildcard cocok nol file (direktori generated kosong sebelum apply
-# pertama) - itu yang menjegal setup fresh (ditemukan 2026-10-26).
-# Migrasi baris Include lama yang sama ke IncludeOptional bila sudah ada.
-$text = $text -replace '(?m)^Include ("[^"]*data/generated/apache/\*\.conf")', 'IncludeOptional $1'
-$panelInclude = "IncludeOptional `"$panelDataDir/data/generated/apache/*.conf`""
-if ($text -notmatch [regex]::Escape('data/generated/apache/*.conf')) {
+# Include generated panel HARUS menunjuk <data_dir>/generated/apache.
+# panel.json setup memakai data_dir = $PanelDir, jadi path-nya
+# $panelDataDir/generated/apache. Path lama $panelDataDir/data/... adalah
+# data_dir DEFAULT (bila panel.json tidak ada) — setup lama salah tulis
+# path itu, sehingga config generated tidak pernah ter-load oleh Apache
+# (gejala: proyek terdaftar tapi tetap listing/source PHP).
+# Migrasi baris lama (plain maupun Optional) ke path yang benar.
+$text = $text -replace '(?m)^Include(Optional)? "[^"]*data/generated/apache/\*\.conf"', "IncludeOptional `"$panelDataDir/generated/apache/*.conf`""
+$panelInclude = "IncludeOptional `"$panelDataDir/generated/apache/*.conf`""
+if ($text -notmatch [regex]::Escape("$panelDataDir/generated/apache/*.conf")) {
     $text += "`r`n$panelInclude`r`n"
 }
 [System.IO.File]::WriteAllText($conf, $text, (New-Object System.Text.UTF8Encoding $false))
@@ -408,8 +411,8 @@ Info "httpd.conf ter-patch (backup: httpd.conf.orig-m0)"
 
 # --- 7. Bukti lokal: httpd -t harus Syntax OK ----------------------------------
 # Direktori generated tetap dibuat dulu (panel membutuhkannya saat apply).
-if (-not (Test-Path "$PanelDir\data\generated\apache")) {
-    New-Item -ItemType Directory -Path "$PanelDir\data\generated\apache" -Force | Out-Null
+if (-not (Test-Path "$PanelDir\generated\apache")) {
+    New-Item -ItemType Directory -Path "$PanelDir\generated\apache" -Force | Out-Null
 }
 $syntax = (& $httpd -t 2>&1) -join "`n"
 Write-Host $syntax

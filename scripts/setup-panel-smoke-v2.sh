@@ -380,10 +380,15 @@ if grep -qE '^[[:space:]]*LoadModule php' "$CONF"; then
   fail "httpd.conf masih memuat mod_php (LoadModule php...) - melanggar desain M0. Tempel baris itu ke Muse."
 fi
 grep -q 'conf-m0-projects\.conf' "$CONF" || printf '\r\nInclude "C:/m0/conf-m0-projects.conf"\r\n' >> "$CONF"
-# Baris Include panel dari run lama (v3) yang masih plain Include harus
-# dimigrasi: kalau tidak, httpd -t tetap gagal pada direktori kosong.
-sed -i -E '/data\/generated\/apache/s/^Include /IncludeOptional /' "$CONF"
-grep -q 'data/generated/apache' "$CONF" || printf '\r\nIncludeOptional "C:/Panel/data/generated/apache/*.conf"\r\n' >> "$CONF"
+# Include generated panel HARUS menunjuk <data_dir>/generated/apache.
+# panel.json setup memakai data_dir C:/Panel, jadi path-nya
+# C:/Panel/generated/apache. Path lama C:/Panel/data/generated/apache
+# adalah data_dir DEFAULT (bila panel.json tidak ada) — setup lama salah
+# tulis path itu, sehingga config generated tidak pernah ter-load oleh
+# Apache (gejala: proyek terdaftar tapi tetap listing/source PHP).
+# Migrasi baris lama (plain maupun Optional) ke path yang benar.
+sed -i -E 's|^Include(Optional)? "C:/Panel/data/generated/apache/\*.conf"|IncludeOptional "C:/Panel/generated/apache/*.conf"|' "$CONF"
+grep -q 'C:/Panel/generated/apache' "$CONF" || printf '\r\nIncludeOptional "C:/Panel/generated/apache/*.conf"\r\n' >> "$CONF"
 info "httpd.conf ter-patch (backup: httpd.conf.orig-m0)"
 grep -E '^(Define SRVROOT|DocumentRoot|Listen|ServerName)' "$CONF" || true
 
@@ -394,7 +399,7 @@ grep -E '^(Define SRVROOT|DocumentRoot|Listen|ServerName)' "$CONF" || true
 # direktori generated panel, yang boleh kosong sebelum apply pertama.
 # (v4 hanya mengatasi error "Could not open directory" saat direktori
 # belum ada sama sekali.)
-mkdir -p "$PANEL_DIR/data/generated/apache"
+mkdir -p "$PANEL_DIR/generated/apache"
 # (|| true: tanpa itu, httpd -t yang gagal mematikan script sebelum pesan
 # fail di bawah sempat tampil.)
 info "Test konfigurasi Apache"
