@@ -31,10 +31,13 @@
     smoke — langkah 9 setup menulis ulang panel.json ke
     default dummy (AD dummy aktif lagi).
 .PARAMETER PanelDir
-    Folder panel (default C:\Panel). Harus berisi panel.exe
-    dan panel.json dari instalasi setup.
+    Folder panel. Bila tidak diisi, script bertanya
+    "Folder panel [C:\Panel]" (kosong = default) — sama
+    seperti prompt Port Apache di setup. Parameter yang
+    diisi selalu menang (untuk jalan non-interaktif).
 .PARAMETER M0Dir
-    Folder M0 (default C:\m0).
+    Folder M0. Bila tidak diisi, script bertanya
+    "Folder M0 [C:\m0]" (kosong = default).
 .PARAMETER AdServer
     Server AD produksi, wajib ldaps://<fqdn-dc>:636 bila diisi.
     Kosong = mode admin-only (ad_enabled=false). Bila dikosongkan
@@ -73,8 +76,8 @@
 
 [CmdletBinding()]
 param(
-    [string]$PanelDir = "C:\Panel",
-    [string]$M0Dir = "C:\m0",
+    [string]$PanelDir = "",
+    [string]$M0Dir = "",
     [string]$AdServer = "",
     [string]$AdDomain = "",
     [string]$AdBaseDn = "",
@@ -117,6 +120,21 @@ $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Fail "Script ini harus jalan dari PowerShell sebagai Administrator (klik kanan PowerShell -> Run as administrator)."
 }
+
+# --- Folder instalasi: parameter menang; kalau tidak diisi, tanya -------------
+# Pola yang sama dengan prompt Port Apache di setup: default ditampilkan
+# di dalam kurung siku, jawaban kosong = default. Untuk jalan
+# non-interaktif (scheduled task dkk.), isi -PanelDir/-M0Dir eksplisit.
+if ([string]::IsNullOrWhiteSpace($PanelDir)) {
+    $in = Read-Host "Folder panel [C:\Panel]"
+    if ([string]::IsNullOrWhiteSpace($in)) { $PanelDir = "C:\Panel" } else { $PanelDir = $in.Trim() }
+}
+if ([string]::IsNullOrWhiteSpace($M0Dir)) {
+    $in = Read-Host "Folder M0 [C:\m0]"
+    if ([string]::IsNullOrWhiteSpace($in)) { $M0Dir = "C:\m0" } else { $M0Dir = $in.Trim() }
+}
+Info "Folder panel: $PanelDir"
+Info "Folder M0: $M0Dir"
 
 # --- 1. Prasyarat: instalasi setup sudah ada ----------------------------------
 $panelExe = Join-Path $PanelDir "panel.exe"
