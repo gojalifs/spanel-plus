@@ -54,7 +54,10 @@
     </form>
     <div id="php-modules" hidden>
       <h3>Extension (<span id="php-modules-title"></span>)</h3>
-      <p id="php-modules-list" class="mono"></p>
+      <p class="muted">Centang extension yang mau aktif, lalu Simpan. Perubahan hanya berlaku untuk versi PHP ini (semua proyek yang memakainya ikut berubah). php.ini di-backup dulu sebelum ditulis; kalau extension gagal termuat, php.ini dikembalikan.</p>
+      <div id="php-ext-list"></div>
+      <button id="php-ext-save" type="button">Simpan extension</button>
+      <p id="php-ext-note" class="muted"></p>
     </div>
   </section>
 

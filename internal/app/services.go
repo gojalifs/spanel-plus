@@ -27,6 +27,8 @@ type PHPOps interface {
 	Register(ctx context.Context, path string) (core.PHPRegistration, error)
 	Remove(version string) error
 	Modules(ctx context.Context, version string) ([]string, error)
+	Extensions(ctx context.Context, version string) (core.PHPExtensionInventory, error)
+	SetExtensions(ctx context.Context, version string, desired map[string]bool) (core.SetExtensionsResult, error)
 }
 
 // ApacheOps is the managed-Apache surface for the API.

@@ -175,6 +175,21 @@ tidak hilang, hanya perlu login ulang.
   Panel mem-probe `php -v`/`php -m`, mendaftarkan versi yang
   terdeteksi, dan **menolak build TS** (hanya NTS yang dipakai
   `mod_fcgid`). `php.ini` produksi hanya dibuat bila belum ada.
+- **Extension per versi PHP**: kelola dari dashboard (PHP
+  Manager → tombol Extension → checklist), tanpa edit
+  `php.ini` manual. Checklist berlaku per versi PHP, bukan
+  per proyek: mengubah extension PHP 8.2 memengaruhi semua
+  proyek yang memakai 8.2. Sebelum menulis, panel mem-backup
+  `php.ini` ke file `php.ini.panel-bak-<timestamp>` di folder
+  yang sama, lalu memverifikasi dengan `php -m` sesudah
+  tulis; bila extension tidak termuat sesuai harapan, backup
+  dikembalikan dan simpan dilaporkan gagal. Extension yang
+  tidak punya DLL di `ext/` ditolak diaktifkan. DLL SQL
+  Server (`php_sqlsrv.dll`, `php_pdo_sqlsrv.dll`) dan
+  Microsoft ODBC Driver tetap instalasi manual: unduh driver
+  Microsoft untuk PHP (NTS x64, sesuai versi PHP) ke `ext/`,
+  instal ODBC Driver, lalu centang `pdo_sqlsrv` di panel
+  (`pdo` ikut aktif otomatis sebagai dependensinya).
 - **Proyek**: tambahkan lewat dashboard (nama proyek = segmen
   path URL, mis. proyek `app-laravel` dilayani di
   `http://<server>/app-laravel`). Laravel di-`Alias` ke folder

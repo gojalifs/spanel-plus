@@ -68,6 +68,12 @@ func (f *fakePHP) Remove(v string) error { f.removed = v; return nil }
 func (f *fakePHP) Modules(context.Context, string) ([]string, error) {
 	return []string{"curl"}, nil
 }
+func (f *fakePHP) Extensions(context.Context, string) (core.PHPExtensionInventory, error) {
+	return core.PHPExtensionInventory{}, nil
+}
+func (f *fakePHP) SetExtensions(context.Context, string, map[string]bool) (core.SetExtensionsResult, error) {
+	return core.SetExtensionsResult{}, nil
+}
 
 type fakeApache struct{ restarted bool }
 

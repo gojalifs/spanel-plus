@@ -167,14 +167,66 @@ function renderPHP() {
   }
 }
 
+let extState = null; // {version, initial: {name: enabled}} for the open checklist
+
+function extStatusText(status) {
+  switch (status) {
+    case 'active': return 'aktif';
+    case 'inactive': return 'nonaktif';
+    case 'builtin': return 'bawaan';
+    case 'broken': return 'rusak';
+    case 'not_installed': return 'belum terinstal';
+    default: return status;
+  }
+}
+
 async function showModules(version) {
   try {
-    const data = await api('GET', '/api/v1/php/' + encodeURIComponent(version) + '/modules');
+    const data = await api('GET', '/api/v1/php/' + encodeURIComponent(version) + '/extensions');
     $('php-modules-title').textContent = 'PHP ' + version;
-    $('php-modules-list').textContent = data.modules.join(', ');
+    const list = $('php-ext-list');
+    list.innerHTML = '';
+    extState = { version: version, initial: {} };
+    for (const e of data.extensions) {
+      const row = el('div');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.name = e.name;
+      const enabled = e.ini_state === 'enabled';
+      cb.checked = enabled;
+      extState.initial[e.name] = enabled;
+      if (!e.toggleable) cb.disabled = true;
+      row.appendChild(cb);
+      row.appendChild(document.createTextNode(' ' + e.name + (e.zend ? ' (Zend)' : '') + ' — ' + extStatusText(e.status) + (e.hint ? ' · ' + e.hint : '')));
+      list.appendChild(row);
+    }
+    $('php-ext-note').textContent = 'php.ini: ' + data.ini_path + ' · Sesudah simpan, restart Apache bila perlu agar semua proses php-cgi baru memakainya.';
     $('php-modules').hidden = false;
   } catch (e) {
     toast('Gagal membaca extension: ' + e.message, false);
+  }
+}
+
+async function saveExtensions() {
+  if (!extState) return;
+  const changes = {};
+  for (const cb of document.querySelectorAll('#php-ext-list input[type=checkbox]')) {
+    const name = cb.dataset.name;
+    if (cb.checked !== extState.initial[name]) changes[name] = cb.checked;
+  }
+  if (!Object.keys(changes).length) {
+    toast('Tidak ada perubahan extension.');
+    return;
+  }
+  try {
+    const res = await api('POST', '/api/v1/php/' + encodeURIComponent(extState.version) + '/extensions', { extensions: changes });
+    let msg = 'Extension disimpan.';
+    if (res.auto_enabled && res.auto_enabled.length) msg += ' Otomatis ikut aktif: ' + res.auto_enabled.join(', ') + '.';
+    if (res.backup_path) msg += ' Backup: ' + res.backup_path;
+    toast(msg);
+    showModules(extState.version);
+  } catch (e) {
+    toast(e.message, false);
   }
 }
 
@@ -370,6 +422,7 @@ document.addEventListener('DOMContentLoaded', () => {
       toast(e.message, false);
     }
   });
+  $('php-ext-save').addEventListener('click', saveExtensions);
 
   $('project-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();

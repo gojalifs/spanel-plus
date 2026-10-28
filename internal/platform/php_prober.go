@@ -32,11 +32,13 @@ func (p ExecPHPProber) Probe(ctx context.Context, dir string) (core.PHPProbeResu
 	if err != nil {
 		return core.PHPProbeResult{}, fmt.Errorf("run php -m in %s: %w", dir, err)
 	}
+	phpMods, zendMods := core.ParsePHPModulesSections(mOut)
 	return core.PHPProbeResult{
-		Version: majorMinor,
-		Full:    full,
-		NTS:     nts,
-		Arch:    arch,
-		Modules: core.ParsePHPModules(mOut),
+		Version:     majorMinor,
+		Full:        full,
+		NTS:         nts,
+		Arch:        arch,
+		Modules:     phpMods,
+		ZendModules: zendMods,
 	}, nil
 }

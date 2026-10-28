@@ -12,11 +12,15 @@ import (
 // validation). The probing itself (running php.exe) sits behind the
 // PHPProber port; the output parsing lives here so it is unit-tested.
 type PHPProbeResult struct {
-	Version string   // "8.3" — major.minor as the registry keys versions
-	Full    string   // "8.3.13" — the full build version
-	NTS     bool     // non-thread-safe build (required by mod_fcgid)
-	Arch    string   // "x64" | "x86" | "arm64" | ""
-	Modules []string // php -m output, one module per entry
+	Version string // "8.3" — major.minor as the registry keys versions
+	Full    string // "8.3.13" — the full build version
+	NTS     bool   // non-thread-safe build (required by mod_fcgid)
+	Arch    string // "x64" | "x86" | "arm64" | ""
+	// Modules is the [PHP Modules] section of php -m, one per entry.
+	Modules []string
+	// ZendModules is the [Zend Modules] section of php -m, normalized
+	// to extension keys ("Zend OPcache" -> "opcache").
+	ZendModules []string
 }
 
 // PHPProber probes a folder holding php.exe.
@@ -49,10 +53,10 @@ func ParsePHPVersionOutput(out string) (full string, majorMinor string, nts bool
 	return full, majorMinor, nts, arch, nil
 }
 
-// ParsePHPModules parses `php.exe -m` output: module names between
-// the [PHP Modules] and [Zend Modules] headers.
-func ParsePHPModules(out string) []string {
-	var mods []string
+// ParsePHPModulesSections parses `php.exe -m` output into its two
+// sections: [PHP Modules] entries verbatim, [Zend Modules] entries
+// normalized to extension keys.
+func ParsePHPModulesSections(out string) (php, zend []string) {
 	section := ""
 	for _, line := range strings.Split(out, "\n") {
 		t := strings.TrimSpace(line)
@@ -67,9 +71,21 @@ func ParsePHPModules(out string) []string {
 		if t == "" {
 			continue
 		}
-		if section == "php" {
-			mods = append(mods, t)
+		switch section {
+		case "php":
+			php = append(php, t)
+		case "zend":
+			if n := normalizeZendModuleName(t); n != "" {
+				zend = append(zend, n)
+			}
 		}
 	}
-	return mods
+	return php, zend
+}
+
+// ParsePHPModules parses `php.exe -m` output: module names between
+// the [PHP Modules] and [Zend Modules] headers.
+func ParsePHPModules(out string) []string {
+	php, _ := ParsePHPModulesSections(out)
+	return php
 }

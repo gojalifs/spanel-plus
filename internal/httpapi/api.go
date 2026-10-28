@@ -37,6 +37,8 @@ func (a *api) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/php", a.registerPHP)
 	mux.HandleFunc("DELETE /api/v1/php/{version}", a.removePHP)
 	mux.HandleFunc("GET /api/v1/php/{version}/modules", a.phpModules)
+	mux.HandleFunc("GET /api/v1/php/{version}/extensions", a.phpExtensions)
+	mux.HandleFunc("POST /api/v1/php/{version}/extensions", a.setPHPExtensions)
 	mux.HandleFunc("GET /api/v1/apache/status", a.apacheStatus)
 	mux.HandleFunc("POST /api/v1/apache/restart", a.apacheRestart)
 	mux.HandleFunc("POST /api/v1/apache/test", a.apacheTest)
@@ -369,6 +371,47 @@ func (a *api) phpModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"modules": mods})
+}
+
+// phpExtensions serves the extension checklist for one PHP version.
+func (a *api) phpExtensions(w http.ResponseWriter, r *http.Request) {
+	_, php, _ := a.services(w)
+	if php == nil {
+		return
+	}
+	inv, err := php.Extensions(r.Context(), r.PathValue("version"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, inv)
+}
+
+type setExtensionsRequest struct {
+	Extensions map[string]bool `json:"extensions"`
+}
+
+// setPHPExtensions applies one checklist save: the body maps
+// extension keys to wanted enabled state, for changed rows only.
+func (a *api) setPHPExtensions(w http.ResponseWriter, r *http.Request) {
+	_, php, _ := a.services(w)
+	if php == nil {
+		return
+	}
+	var req setExtensionsRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Extensions == nil {
+		writeErr(w, errors.New("extensions wajib diisi (map nama -> aktif)"))
+		return
+	}
+	res, err := php.SetExtensions(r.Context(), r.PathValue("version"), req.Extensions)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (a *api) apacheStatus(w http.ResponseWriter, _ *http.Request) {
