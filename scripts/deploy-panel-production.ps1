@@ -14,18 +14,25 @@
            gagal dengan pesan jelas.
          - VC++ Redistributable dicek keras (vcruntime140.dll).
          - Apache: di-skip bila Apache24/bin/httpd.exe sudah ada.
-           Bila belum ada, download dari Apache Lounge: discovery
+           Bila belum ada, cek dulu: zip Apache di folder downloads
+           (sisa run lama) dipakai langsung tanpa download; folder
+           Apache24 yang sudah ada isinya tapi httpd.exe-nya hilang
+           dan tidak ada zip -> gagal keras (bukan download diam-
+           diam, bukan hapus copy manual). Bila folder kosong dan
+           tidak ada zip, download dari Apache Lounge: discovery
            versi terbaru VS18 dulu, fallback ke pinned 2.4.69
-           bila discovery gagal. Folder Apache24 yang ada tapi
-           httpd.exe-nya hilang dianggap instalasi rusak dan
-           dipasang ulang (bukan di-skip diam-diam).
-         - mod_fcgid: di-skip bila modules/mod_fcgid.so sudah ada,
-           bila belum download pinned 2.3.10 VS18 (VS harus sama
-           dengan Apache, kalau tidak modul tidak mau di-load).
+           bila discovery gagal.
+         - mod_fcgid: di-skip bila modules/mod_fcgid.so sudah ada;
+           zip di downloads dipakai dulu bila ada, bila belum
+           download pinned 2.3.10 VS18 (VS harus sama dengan
+           Apache, kalau tidak modul tidak mau di-load).
          - PHP 8.2, 8.3, 8.4 NTS x64 ke M0/php/<cabang>: per cabang
-           di-skip bila php.exe sudah ada. Bila belum, discovery
-           patch terbaru dari php.net dulu, fallback ke arsip
-           pinned bila discovery gagal.
+           di-skip bila php.exe sudah ada; zip di downloads
+           dipakai dulu bila ada; folder cabang yang sudah ada
+           isinya tapi php.exe-nya hilang dan tidak ada zip ->
+           gagal keras. Bila belum ada apa-apa, discovery patch
+           terbaru dari php.net dulu, fallback ke arsip pinned
+           bila discovery gagal.
          - httpd.conf: di-patch idempotent (backup sekali ke
            .orig-m0): SRVROOT/ServerRoot/DocumentRoot/DirectoryIndex
            menunjuk M0Dir, rewrite diaktifkan, mod_php ditolak,
@@ -202,6 +209,26 @@ function Find-ChildFile([string]$Root, [string]$Name) {
     return $found.FullName
 }
 
+function Test-DirNonEmpty([string]$Path) {
+    # "Ada isinya" = folder ada DAN punya minimal satu entri (termasuk hidden).
+    if (-not (Test-Path $Path)) { return $false }
+    $items = @(Get-ChildItem -Path $Path -Force -ErrorAction SilentlyContinue)
+    return $items.Count -gt 0
+}
+
+function Find-UsableZip([string]$Pattern, [long]$MinBytes) {
+    # Zip yang sudah ada di folder downloads (sisa run setup/deploy lama).
+    # Yang terlalu kecil dianggap sisa download gagal dan diabaikan
+    # (bukan dipakai lalu gagal ekstrak). Bila ada beberapa, yang
+    # terbaru (LastWriteTime) yang dipakai.
+    if (-not (Test-Path $dlDir)) { return $null }
+    $found = Get-ChildItem -Path $dlDir -Filter $Pattern -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Length -ge $MinBytes } |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($null -eq $found) { return $null }
+    return $found.FullName
+}
+
 function Write-TextFile([string]$Path, [string]$Content) {
     $dir = Split-Path $Path -Parent
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
@@ -369,14 +396,34 @@ if (Test-Path $httpdConf) {
     $freshHttpdConf = $true
 }
 
-# URL yang akan dipakai bila harus download (discovery hanya baca halaman,
-# bukan download zip, jadi aman di fase deteksi; gagal -> pinned).
+# Urutan sebelum download (berlaku untuk Apache dan PHP):
+#   1. exe sudah ada -> skip total.
+#   2. zip sudah ada di folder downloads -> ekstrak saja, tanpa download.
+#   3. folder tujuan sudah ada isinya tapi exe tidak ada -> GAGAL keras
+#      (copy manual tidak lengkap; script tidak men-download karena
+#      folder tujuan sudah ada isinya - user yang menentukan: lengkapi
+#      copy itu, atau hapus foldernya lalu jalankan ulang).
+#   4. folder tujuan kosong/tidak ada dan tidak ada zip -> download.
+# Discovery hanya baca halaman, jadi aman di fase deteksi; gagal -> pinned.
 $pinnedApacheUrl = "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip"
 $pinnedFcgidUrl = "https://www.apachelounge.com/download/VS18/modules/mod_fcgid-2.3.10-win64-VS18.zip"
+$apacheZipReuse = $null
+$apacheNeedDownload = $false
 $apacheUrlPlan = $pinnedApacheUrl
 if (-not $haveHttpd) {
-    $found = Discover-ApacheUrl
-    if ($null -ne $found) { $apacheUrlPlan = $found }
+    $apacheZipReuse = Find-UsableZip "httpd-2.4.*-Win64-VS18.zip" 1000000
+    if ($null -eq $apacheZipReuse) {
+        if (Test-DirNonEmpty (Join-Path $M0Dir "Apache24")) {
+            Fail "Folder $M0Dir\Apache24 sudah ada isinya tapi httpd.exe tidak ditemukan, dan tidak ada zip Apache yang bisa dipakai di $dlDir. Lengkapi copy manual itu, atau hapus folder Apache24 lalu jalankan ulang - script tidak men-download karena folder tujuan sudah ada isinya."
+        }
+        $apacheNeedDownload = $true
+        $found = Discover-ApacheUrl
+        if ($null -ne $found) { $apacheUrlPlan = $found }
+    }
+}
+$fcgidZipReuse = $null
+if (-not $haveFcgid) {
+    $fcgidZipReuse = Find-UsableZip "mod_fcgid-*-win64-VS18.zip" 10000
 }
 $pinnedPhp = @{
     "8.2" = @("php-8.2.28-nts-Win32-vs16-x64.zip", "php-8.2.15-nts-Win32-vs16-x64.zip")
@@ -387,9 +434,18 @@ $phpPlan = @{}
 foreach ($branch in @("8.2", "8.3", "8.4")) {
     $dest = Join-Path $M0Dir "php\$branch"
     $have = Test-Path (Join-Path $dest "php.exe")
+    $reuse = $null
     $url = $null
-    if (-not $have) { $url = Discover-PhpUrl $branch }
-    $phpPlan[$branch] = @{ Have = $have; Url = $url; Dest = $dest }
+    if (-not $have) {
+        $reuse = Find-UsableZip "php-$branch.*-nts-Win32-vs*-x64.zip" 1000000
+        if ($null -eq $reuse) {
+            if (Test-DirNonEmpty $dest) {
+                Fail "Folder $dest sudah ada isinya tapi php.exe tidak ditemukan, dan tidak ada zip PHP $branch yang bisa dipakai di $dlDir. Lengkapi copy manual itu, atau hapus folder $dest lalu jalankan ulang - script tidak men-download karena folder tujuan sudah ada isinya."
+            }
+            $url = Discover-PhpUrl $branch
+        }
+    }
+    $phpPlan[$branch] = @{ Have = $have; Url = $url; Dest = $dest; Reuse = $reuse }
 }
 $m0IncludePresent = $false
 if (Test-Path $httpdConf) {
@@ -456,17 +512,23 @@ if ($havePanelExe) {
 }
 if ($haveHttpd) {
     Write-Host "    Apache     : sudah ada, skip"
+} elseif ($null -ne $apacheZipReuse) {
+    Write-Host "    Apache     : EKSTRAK dari $(Split-Path $apacheZipReuse -Leaf) (sudah ada di downloads, tanpa download)"
 } else {
     Write-Host "    Apache     : DOWNLOAD $apacheUrlPlan"
 }
 if ($haveFcgid) {
     Write-Host "    mod_fcgid  : sudah ada, skip"
+} elseif ($null -ne $fcgidZipReuse) {
+    Write-Host "    mod_fcgid  : EKSTRAK dari $(Split-Path $fcgidZipReuse -Leaf) (sudah ada di downloads, tanpa download)"
 } else {
     Write-Host "    mod_fcgid  : DOWNLOAD $pinnedFcgidUrl"
 }
 foreach ($branch in @("8.2", "8.3", "8.4")) {
     if ($phpPlan[$branch].Have) {
         Write-Host "    PHP $branch    : sudah ada, skip"
+    } elseif ($null -ne $phpPlan[$branch].Reuse) {
+        Write-Host "    PHP $branch    : EKSTRAK dari $(Split-Path $phpPlan[$branch].Reuse -Leaf) (sudah ada di downloads, tanpa download)"
     } elseif ($null -ne $phpPlan[$branch].Url) {
         Write-Host "    PHP $branch    : DOWNLOAD $($phpPlan[$branch].Url)"
     } else {
@@ -530,8 +592,13 @@ if (-not $havePanelExe) {
 
 # --- 5. Provision: Apache + mod_fcgid ----------------------------------------------
 if (-not $haveHttpd) {
-    $zip = Join-Path $dlDir (Split-Path $apacheUrlPlan -Leaf)
-    Download-File $apacheUrlPlan $zip 1000000
+    if ($null -ne $apacheZipReuse) {
+        $zip = $apacheZipReuse
+        Info "Apache dari zip yang sudah ada di downloads (tanpa download): $zip"
+    } else {
+        $zip = Join-Path $dlDir (Split-Path $apacheUrlPlan -Leaf)
+        Download-File $apacheUrlPlan $zip 1000000
+    }
     $tmp = Join-Path $M0Dir "_apache_tmp"
     if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
     Expand-Archive -Path $zip -DestinationPath $tmp -Force
@@ -539,19 +606,31 @@ if (-not $haveHttpd) {
     if ($null -eq $inner) { Fail "httpd.exe tidak ditemukan di dalam ZIP Apache - struktur ZIP berubah, laporkan ke Muse." }
     $apacheRoot = Split-Path (Split-Path $inner -Parent) -Parent
     $apacheDest = Join-Path $M0Dir "Apache24"
-    if (Test-Path $apacheDest) {
-        # Sisa run sebelumnya yang rusak (folder ada, httpd.exe hilang):
-        # singkirkan dulu supaya Move-Item tidak menumpuk Apache24 di dalamnya.
-        Remove-Item $apacheDest -Recurse -Force
+    if ((Test-Path $apacheDest) -and ($null -ne $apacheZipReuse) -and (Test-DirNonEmpty $apacheDest)) {
+        # Reuse + folder sudah ada isinya: JANGAN hapus copy manual user.
+        # Salin menimpa (merge) saja, lalu verifikasi httpd.exe di bawah.
+        Copy-Item "$apacheRoot\*" $apacheDest -Recurse -Force
+    } else {
+        if (Test-Path $apacheDest) {
+            # Sisa run sebelumnya yang rusak/empty: singkirkan dulu supaya
+            # Move-Item tidak menumpuk Apache24 di dalamnya.
+            Remove-Item $apacheDest -Recurse -Force
+        }
+        Move-Item $apacheRoot $apacheDest -Force
     }
-    Move-Item $apacheRoot $apacheDest -Force
     Remove-Item $tmp -Recurse -Force
-    Info "Apache terpasang dari: $apacheUrlPlan"
+    if (-not (Test-Path $httpd)) { Fail "httpd.exe tetap tidak ada sesudah ekstrak dari $zip - zip tidak lengkap." }
+    Info "Apache terpasang dari: $zip"
 } else { Info "Apache sudah ada, skip" }
 
 if (-not $haveFcgid) {
-    $zip = Join-Path $dlDir (Split-Path $pinnedFcgidUrl -Leaf)
-    Download-File $pinnedFcgidUrl $zip 10000
+    if ($null -ne $fcgidZipReuse) {
+        $zip = $fcgidZipReuse
+        Info "mod_fcgid dari zip yang sudah ada di downloads (tanpa download): $zip"
+    } else {
+        $zip = Join-Path $dlDir (Split-Path $pinnedFcgidUrl -Leaf)
+        Download-File $pinnedFcgidUrl $zip 10000
+    }
     $tmp = Join-Path $M0Dir "_fcgid_tmp"
     if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
     Expand-Archive -Path $zip -DestinationPath $tmp -Force
@@ -559,7 +638,7 @@ if (-not $haveFcgid) {
     if ($null -eq $so) { Fail "mod_fcgid.so tidak ditemukan di dalam ZIP mod_fcgid - laporkan ke Muse." }
     Copy-Item $so $fcgidSo -Force
     Remove-Item $tmp -Recurse -Force
-    Info "mod_fcgid terpasang dari: $pinnedFcgidUrl"
+    Info "mod_fcgid terpasang dari: $zip"
 } else { Info "mod_fcgid.so sudah ada, skip" }
 
 # --- 6. Provision: PHP 8.2 + 8.3 + 8.4 NTS x64 ---------------------------------------
@@ -568,21 +647,26 @@ foreach ($branch in @("8.2", "8.3", "8.4")) {
     if ($phpPlan[$branch].Have) { Info "PHP $branch sudah ada, skip"; continue }
     if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
     $zip = $null
-    if ($null -ne $phpPlan[$branch].Url) {
-        $candidate = Join-Path $dlDir (Split-Path $phpPlan[$branch].Url -Leaf)
-        if (Try-Download $phpPlan[$branch].Url $candidate) { $zip = $candidate; Info "PHP $branch dari: $($phpPlan[$branch].Url)" }
-    }
-    if ($null -eq $zip) {
-        foreach ($name in $pinnedPhp[$branch]) {
-            foreach ($folder in @("releases", "releases/archives")) {
-                $url = "https://windows.php.net/downloads/$folder/$name"
-                $candidate = Join-Path $dlDir $name
-                if (Try-Download $url $candidate) { $zip = $candidate; Info "PHP $branch dari arsip: $url"; break }
-            }
-            if ($null -ne $zip) { break }
+    if ($null -ne $phpPlan[$branch].Reuse) {
+        $zip = $phpPlan[$branch].Reuse
+        Info "PHP $branch dari zip yang sudah ada di downloads (tanpa download): $zip"
+    } else {
+        if ($null -ne $phpPlan[$branch].Url) {
+            $candidate = Join-Path $dlDir (Split-Path $phpPlan[$branch].Url -Leaf)
+            if (Try-Download $phpPlan[$branch].Url $candidate) { $zip = $candidate; Info "PHP $branch dari: $($phpPlan[$branch].Url)" }
         }
+        if ($null -eq $zip) {
+            foreach ($name in $pinnedPhp[$branch]) {
+                foreach ($folder in @("releases", "releases/archives")) {
+                    $url = "https://windows.php.net/downloads/$folder/$name"
+                    $candidate = Join-Path $dlDir $name
+                    if (Try-Download $url $candidate) { $zip = $candidate; Info "PHP $branch dari arsip: $url"; break }
+                }
+                if ($null -ne $zip) { break }
+            }
+        }
+        if ($null -eq $zip) { Fail "Semua jalur download PHP $branch NTS x64 gagal (discovery + arsip pinned). Laporkan output ini ke Muse." }
     }
-    if ($null -eq $zip) { Fail "Semua jalur download PHP $branch NTS x64 gagal (discovery + arsip pinned). Laporkan output ini ke Muse." }
     Expand-Archive -Path $zip -DestinationPath $dest -Force
     if (-not (Test-Path (Join-Path $dest "php-cgi.exe"))) { Fail "php-cgi.exe tidak ada setelah ekstrak PHP $branch dari $zip - bukan build NTS yang benar." }
     if (-not (Test-Path (Join-Path $dest "php.ini"))) {

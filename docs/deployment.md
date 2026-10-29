@@ -73,6 +73,12 @@ rencana lengkap, dan baru bermutasi sesudah konfirmasi Y
   terbaru dari php.net, fallback arsip pinned) bila php.exe
   cabang itu belum ada. Folder PHP yang sudah dicopy manual
   di-skip, tidak di-download ulang.
+- Sebelum download, script mengecek folder tujuan (ada isinya
+  atau tidak) dan folder downloads di M0: zip Apache/PHP yang
+  sudah ada di downloads langsung diekstrak tanpa download
+  ulang; folder tujuan yang sudah ada isinya tapi exe-nya
+  hilang membuat script gagal keras dengan pesan jelas (bukan
+  men-download diam-diam atau menghapus copy manual).
 - httpd.conf di-patch idempotent (backup sekali .orig-m0),
   service apache-spanel + SPanelPlus dipasang/dipastikan jalan.
 - panel.json dibuat baru langsung mode produksi bila belum ada,
