@@ -187,14 +187,25 @@ function Invoke-Native([string]$File, [string[]]$Arguments) {
     # peringatan AH00558 dari httpd). Dengan $ErrorActionPreference =
     # "Stop", stderr yang lolos ke error stream PowerShell berubah
     # menjadi NativeCommandError yang menghentikan script - sukses
-    # dikira gagal (bug 2026-10-29 di baris httpd -t). Redirect 2>&1
-    # tidak cukup di semua versi PowerShell; redirect ke file dilewati
-    # OS dan tidak pernah menjadi ErrorRecord. Mengembalikan stdout,
-    # stderr, gabungan keduanya, dan exit code.
+    # dikira gagal (bug 2026-10-29 di baris httpd -t).
+    # Pelajaran lanjutan dari screenshot run max (baris 196): redirect
+    # 2> ke file saja TIDAK cukup - WriteError tetap melempar selama
+    # EAP = Stop, ke mana pun stream dialihkan. Jadi selama panggilan
+    # native, EAP diturunkan ke Continue (error record tetap ditulis
+    # ke file redirect, tapi tidak menghentikan script), lalu
+    # dikembalikan ke nilai awal di finally. Nilai awal script ini
+    # adalah Stop, jadi perilaku fail-fast di luar panggilan native
+    # tetap terjaga.
     $errFile = Join-Path ([System.IO.Path]::GetTempPath()) ("spanel-err-" + $PID + ".txt")
     if (Test-Path $errFile) { Remove-Item $errFile -Force -ErrorAction SilentlyContinue }
-    $out = & $File @Arguments 2> $errFile
-    $code = $LASTEXITCODE
+    $oldEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $out = & $File @Arguments 2> $errFile
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $oldEap
+    }
     $err = ""
     if (Test-Path $errFile) {
         $err = [System.IO.File]::ReadAllText($errFile)
@@ -876,7 +887,16 @@ if ($havePanelJson) {
 if (-not (Test-Path $adminPath)) {
     Write-Host ""
     Write-Host "Akun admin lokal belum ada. Sekarang set password admin panel (ketik 2x saat diminta):"
-    & $panelExe admin set-password
+    # Interaktif: stdout tetap langsung ke console (prompt harus terlihat),
+    # tapi EAP tetap dinetralkan seperti Invoke-Native supaya stderr
+    # panel.exe tidak membunuh script di tengah prompt.
+    $oldEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $panelExe admin set-password
+    } finally {
+        $ErrorActionPreference = $oldEap
+    }
     if (-not (Test-Path $adminPath)) {
         Fail "admin.json tetap tidak ada sesudah set-password ($adminPath). Jalankan manual: $panelExe admin set-password"
     }
