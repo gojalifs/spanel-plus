@@ -224,6 +224,18 @@ tidak hilang, hanya perlu login ulang.
   pipeline apply: snapshot → tulis config → `httpd -t` →
   restart Apache → health-check → commit registry. Gagal di
   tengah jalan mengembalikan snapshot persis seperti semula.
+- **Port Apache selain 80 (mis. 8000) didukung.** Panel membaca
+  port dari direktif `Listen` pertama di `httpd.conf` saat
+  service start, lalu memakai port itu untuk health-check apply
+  dan untuk link proyek di dashboard (port 80 tetap tampil
+  tanpa port di URL, seperti biasa). Tidak ada field
+  `apache_port` di `panel.json` — `httpd.conf` adalah satu-satunya
+  sumber kebenaran, jadi tidak mungkin config panel meleset
+  dari port yang benar-benar dipakai Apache. Konsekuensi: bila
+  `Listen` diubah sesudah panel jalan, restart service
+  `SPanelPlus` supaya deteksi port ikut berubah; mengubah port
+  tanpa restart panel membuat health-check dan link dashboard
+  masih mengarah ke port lama.
 - **Dummy smoke test bukan bagian produksi.** Folder dummy
   (`app-php82`, `app-php83`, `app-laravel`) dan config M0-nya
   hanya untuk smoke test. Sebelum go-live: hapus folder dummy

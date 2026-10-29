@@ -57,9 +57,20 @@ func run() int {
 	var scheduler *core.Scheduler
 	var authSvc *core.AuthService
 	var auditLog core.AuditLogger
+	// Site port for health checks and dashboard links; detected
+	// from httpd.conf when the config loads, 80 (historic default)
+	// when it does not. Declared here so the Serve and OpenDesktop
+	// closures below — outside the config block — can use it.
+	apachePort := core.DefaultApachePort
 	if wireCfg, cfgErr := config.Load(baseDir); cfgErr == nil {
 		apacheHome, _ := core.ResolveApacheHome(platform.OSFileProbe{}, wireCfg.ApacheHome, config.DefaultApacheCandidates())
 		fileStore := platform.OSFileStore{}
+		// Health checks and dashboard links target the port Apache
+		// actually listens on (first Listen in httpd.conf). Port 80
+		// keeps the historic bare URL. Detection runs once at
+		// startup, so changing Listen later needs an SPanelPlus
+		// restart to take effect.
+		apachePort = core.DetectApachePort(fileStore, apacheHome)
 		registrySvc := &core.RegistryService{
 			Store: platform.NewJSONRegistryStore(filepath.Join(wireCfg.DataDir, "registry.json")),
 			Files: platform.OSFileProbe{},
@@ -84,7 +95,7 @@ func run() int {
 				RegistryPath:   filepath.Join(wireCfg.DataDir, "registry.json"),
 				GeneratedDir:   filepath.Join(wireCfg.DataDir, "generated", "apache"),
 				BackupsDir:     filepath.Join(wireCfg.DataDir, "backups"),
-				HealthBaseURL:  "http://127.0.0.1",
+				HealthBaseURL:  core.SiteBaseURL(apachePort),
 				Retention:      20,
 				HealthAttempts: 10,
 				HealthInterval: 500 * time.Millisecond,
@@ -156,6 +167,7 @@ func run() int {
 				scheduler.Log = logger
 				application.AttachRuntime(app.Runtime{Supervisor: supervisor, Scheduler: scheduler}, supervisor, platform.OSFileStore{}, supervisor.LogDir)
 			}
+			application.AttachApachePort(apachePort)
 			handler := httpapi.NewHandler(application, logger)
 			return platform.RunPanel(buildinfo.ServiceName, func(ctx context.Context) error {
 				return application.Run(ctx, handler)
@@ -173,6 +185,7 @@ func run() int {
 				scheduler.Log = logger
 				application.AttachRuntime(app.Runtime{Supervisor: supervisor, Scheduler: scheduler}, supervisor, platform.OSFileStore{}, supervisor.LogDir)
 			}
+			application.AttachApachePort(apachePort)
 			handler := httpapi.NewHandler(application, logger)
 			base := fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)
 			var runErr error

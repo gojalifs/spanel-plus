@@ -143,6 +143,7 @@ function button(label, onClick) {
 }
 
 let registry = { projects: [], php_versions: [] };
+let apachePort = 80; // site port from /api/v1/overview (httpd.conf Listen); 80 = historic default
 let pendingSetPHP = null; // {name, version} awaiting apply from diff panel
 let editingName = null;    // project name when the form is in edit mode
 
@@ -155,6 +156,7 @@ async function loadAll() {
     $('stat-apache-name').textContent = 'service: ' + (ov.apache_service || '-');
     $('stat-panel').textContent = 'v' + ov.status.version;
     $('apache-chip').textContent = 'Apache: ' + (ov.apache_status || '?');
+    apachePort = (ov.status.apache_port || 80);
     registry = await api('GET', '/api/v1/projects');
     renderPHP();
     renderProjects();
@@ -325,7 +327,7 @@ function renderProjects() {
     tr.appendChild(el('td', p.name, 'mono'));
     const urlTd = el('td');
     const a = el('a', p.url_path, 'mono');
-    a.href = 'http://' + window.location.hostname + p.url_path;
+    a.href = 'http://' + window.location.hostname + (apachePort === 80 ? '' : ':' + apachePort) + p.url_path;
     a.target = '_blank';
     urlTd.appendChild(a);
     tr.appendChild(urlTd);

@@ -26,18 +26,19 @@ type Application struct {
 	clock   core.Clock
 	started time.Time
 
-	projects  ProjectOps
-	php       PHPOps
-	apache    ApacheOps
-	processes ProcessOps
-	runtime   Runtime
-	logFiles  core.FileStore
-	logDir    string
-	auth      *core.AuthService
-	audit     core.AuditLogger
-	ad        core.Authenticator // nil = directory login unavailable
-	adConfig  core.ADConfig
-	adErr     error // construction/validation error: AD login answers 503, local stays up
+	projects   ProjectOps
+	php        PHPOps
+	apache     ApacheOps
+	apachePort int // site port detected from httpd.conf (0 = undetected)
+	processes  ProcessOps
+	runtime    Runtime
+	logFiles   core.FileStore
+	logDir     string
+	auth       *core.AuthService
+	audit      core.AuditLogger
+	ad         core.Authenticator // nil = directory login unavailable
+	adConfig   core.ADConfig
+	adErr      error // construction/validation error: AD login answers 503, local stays up
 }
 
 // AttachAD wires the directory authenticator (M5-AD). When the
@@ -97,6 +98,15 @@ func (a *Application) AttachServices(projects ProjectOps, php PHPOps, apache Apa
 }
 
 // Projects returns the attached project service, or nil.
+// AttachApachePort records the Apache site port detected from
+// httpd.conf at startup (see core.DetectApachePort). Status
+// exposes it so the dashboard builds project links with the right
+// port; zero means undetected and Status reports 80 then, matching
+// the historic default.
+func (a *Application) AttachApachePort(port int) {
+	a.apachePort = port
+}
+
 func (a *Application) Projects() ProjectOps { return a.projects }
 
 // PHP returns the attached PHP manager, or nil.
@@ -125,6 +135,7 @@ type Status struct {
 	UptimeSeconds int64  `json:"uptime_seconds"`
 	ApacheHome    string `json:"apache_home"` // "" = auto-discover (see doctor)
 	ApacheService string `json:"apache_service"`
+	ApachePort    int    `json:"apache_port"` // site port from httpd.conf Listen
 }
 
 // Status reports the panel's current state.
@@ -141,7 +152,18 @@ func (a *Application) Status() Status {
 		UptimeSeconds: int64(a.clock.Now().Sub(a.started).Seconds()),
 		ApacheHome:    apacheHome,
 		ApacheService: a.cfg.ApacheService,
+		ApachePort:    a.sitePort(),
 	}
+}
+
+// sitePort is the Apache site port for links and status: the
+// detected port, or 80 when nothing was attached (tests, old
+// wiring) — the historic default.
+func (a *Application) sitePort() int {
+	if a.apachePort == 0 {
+		return core.DefaultApachePort
+	}
+	return a.apachePort
 }
 
 // Doctor runs the environment checks against this app's config.
