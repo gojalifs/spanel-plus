@@ -180,6 +180,36 @@ function Wait-ServiceRunning([string]$Name, [int]$TimeoutSec = 60) {
     Fail "Service $Name tidak Running sesudah ${TimeoutSec} detik."
 }
 
+function Invoke-Native([string]$File, [string[]]$Arguments) {
+    # Jalankan perintah native dengan stderr dialihkan ke FILE, bukan ke
+    # error stream PowerShell. Alasan: tool native menulis diagnostik ke
+    # stderr BAHKAN SAAT SUKSES (mis. "Syntax OK" dari httpd -t, atau
+    # peringatan AH00558 dari httpd). Dengan $ErrorActionPreference =
+    # "Stop", stderr yang lolos ke error stream PowerShell berubah
+    # menjadi NativeCommandError yang menghentikan script - sukses
+    # dikira gagal (bug 2026-10-29 di baris httpd -t). Redirect 2>&1
+    # tidak cukup di semua versi PowerShell; redirect ke file dilewati
+    # OS dan tidak pernah menjadi ErrorRecord. Mengembalikan stdout,
+    # stderr, gabungan keduanya, dan exit code.
+    $errFile = Join-Path ([System.IO.Path]::GetTempPath()) ("spanel-err-" + $PID + ".txt")
+    if (Test-Path $errFile) { Remove-Item $errFile -Force -ErrorAction SilentlyContinue }
+    $out = & $File @Arguments 2> $errFile
+    $code = $LASTEXITCODE
+    $err = ""
+    if (Test-Path $errFile) {
+        $err = [System.IO.File]::ReadAllText($errFile)
+        Remove-Item $errFile -Force -ErrorAction SilentlyContinue
+    }
+    $outText = ""
+    if ($null -ne $out) { $outText = ($out -join "`n") }
+    $all = $outText
+    if (-not [string]::IsNullOrWhiteSpace($err)) {
+        if ($all -ne "") { $all += "`n" }
+        $all += $err.TrimEnd()
+    }
+    return @{ Out = $outText; Err = $err; All = $all; Code = $code }
+}
+
 function Download-File([string]$Url, [string]$Dest, [long]$MinBytes) {
     Info "Download $Url"
     try {
@@ -672,7 +702,8 @@ foreach ($branch in @("8.2", "8.3", "8.4")) {
     if (-not (Test-Path (Join-Path $dest "php.ini"))) {
         Copy-Item (Join-Path $dest "php.ini-development") (Join-Path $dest "php.ini")
     }
-    Info "PHP $branch siap: $((& (Join-Path $dest "php.exe") -v | Select-Object -First 1))"
+    $pv = Invoke-Native (Join-Path $dest "php.exe") @("-v")
+    Info "PHP $branch siap: $(($pv.Out -split "`n" | Select-Object -First 1))"
 }
 
 # --- 7. Patch httpd.conf (backup sekali, idempotent) ----------------------------------
@@ -751,17 +782,20 @@ if (-not (Test-Path "$dataDir\generated\apache")) {
 }
 
 # --- 8. Bukti lokal: httpd -t + gate modul (sebelum service dipasang) ------------------
-$syntax = (& $httpd -t 2>&1) -join "`n"
+$r = Invoke-Native $httpd @("-t")
+$syntax = $r.All
 Write-Host $syntax
 if ($syntax -notmatch 'Syntax OK') {
     Fail "httpd -t TIDAK Syntax OK. Output persisnya di atas - kirim ke Muse, jangan paksa start Apache."
 }
-$mods = (& $httpd -M 2>&1) -join "`n"
+$r = Invoke-Native $httpd @("-M")
+$mods = $r.All
 if ($mods -notmatch 'rewrite_module') {
     Fail "rewrite_module TIDAK ke-load (httpd -M). Periksa LoadModule rewrite_module di httpd.conf dan file modules/mod_rewrite.so - jangan lanjutkan deployment."
 }
 Info "rewrite_module ter-load (httpd -M)"
-Info "Apache version: $((& $httpd -v | Select-Object -First 1))"
+$v = Invoke-Native $httpd @("-v")
+Info "Apache version: $(($v.Out -split "`n" | Select-Object -First 1))"
 
 # --- 9. Service Apache (apache-spanel) ---------------------------------------------------
 # Migrasi dari nama lama: service Apache2.4 peninggalan setup lama HANYA
@@ -773,7 +807,8 @@ if ($null -ne $oldSvc) {
     if ($old.PathName -match [regex]::Escape($M0Dir)) {
         Info "Service lama Apache2.4 (milik setup ini) ditemukan, migrasi ke $apacheService"
         Stop-Service -Name "Apache2.4" -ErrorAction SilentlyContinue
-        & $httpd -k uninstall -n "Apache2.4"
+        $r = Invoke-Native $httpd @("-k", "uninstall", "-n", "Apache2.4")
+        Write-Host $r.All
     } else {
         Fail "Service Apache2.4 sudah ada tapi bukan dari $M0Dir (milik XAMPP/aplikasi lain?). Stop/uninstall service itu dulu."
     }
@@ -787,7 +822,8 @@ if ($null -ne $existing) {
     Info "Service $apacheService sudah ada (milik setup ini), skip install"
 } else {
     Info "Install service Apache $apacheService"
-    & $httpd -k install -n $apacheService
+    $r = Invoke-Native $httpd @("-k", "install", "-n", $apacheService)
+    Write-Host $r.All
 }
 $svc = Get-Service -Name $apacheService
 if ($svc.Status -ne "Running") { Start-Service -Name $apacheService }
@@ -855,7 +891,8 @@ if (-not (Test-Path $adminPath)) {
 $panelSvc = Get-Service -Name "SPanelPlus" -ErrorAction SilentlyContinue
 if ($null -eq $panelSvc) {
     Info "Install service panel SPanelPlus"
-    & $panelExe service install
+    $r = Invoke-Native $panelExe @("service", "install")
+    Write-Host $r.All
 } else {
     Info "Service SPanelPlus sudah ada, skip install"
     if ($panelSvc.Status -eq "Running") {
@@ -866,7 +903,8 @@ if ($null -eq $panelSvc) {
 }
 $panelSvc = Get-Service -Name "SPanelPlus"
 if ($panelSvc.Status -ne "Running") {
-    & $panelExe service start
+    $r = Invoke-Native $panelExe @("service", "start")
+    Write-Host $r.All
     Start-Sleep -Seconds 2
 }
 $panelSvc = Get-Service -Name "SPanelPlus"
@@ -898,12 +936,14 @@ if ($RemoveDummies) {
 # --- 14. Gate final + restart Apache -------------------------------------------------------------
 # Langkah 13 mengubah httpd.conf (bila -RemoveDummies), jadi gate diulang
 # di sini untuk config final, bukan hanya config hasil patch langkah 7.
-$syntax = (& $httpd -t 2>&1) -join "`n"
+$r = Invoke-Native $httpd @("-t")
+$syntax = $r.All
 Write-Host $syntax
 if ($syntax -notmatch 'Syntax OK') {
     Fail "httpd -t TIDAK Syntax OK. Output di atas - jangan lanjut; pulihkan dari $httpdBackup bila perlu."
 }
-$mods = (& $httpd -M 2>&1) -join "`n"
+$r = Invoke-Native $httpd @("-M")
+$mods = $r.All
 foreach ($m in @("rewrite_module", "fcgid_module")) {
     if ($mods -notmatch $m) {
         Fail "$m TIDAK ke-load (httpd -M). Periksa LoadModule di httpd.conf dan file modules/$m.so - jangan lanjutkan deployment."
@@ -920,9 +960,10 @@ Info "Service $apacheService di-restart."
 # adalah panel-port: dari CLI, doctor tidak bisa membuktikan port panel
 # dipegang service panel sendiri, jadi port yang sedang dipakai service
 # selalu FAIL padahal itu by design. FAIL lain = gagal deployment.
-$doctorOut = (& $panelExe doctor 2>&1) -join "`n"
+$dr = Invoke-Native $panelExe @("doctor")
+$doctorOut = $dr.All
 Write-Host $doctorOut
-$doctorCode = $LASTEXITCODE
+$doctorCode = $dr.Code
 $failNames = @([regex]::Matches($doctorOut, '(?m)^FAIL\s+(\S+)') | ForEach-Object { $_.Groups[1].Value })
 $realFails = @($failNames | Where-Object { $_ -ne 'panel-port' })
 if ($doctorCode -ne 0 -and $realFails.Count -gt 0) {
@@ -968,7 +1009,8 @@ if (-not $SkipProjectChecks) {
         foreach ($p in $active) {
             $url = "http://127.0.0.1$($p.url_path)"
             if ($apachePortCheck -ne 80) { $url = "http://127.0.0.1:$apachePortCheck$($p.url_path)" }
-            $code = (& curl.exe -s -o NUL -w '%{http_code}' -L --max-redirs 10 --max-time 10 $url) -as [int]
+            $cr = Invoke-Native "curl.exe" @("-s", "-o", "NUL", "-w", '%{http_code}', "-L", "--max-redirs", "10", "--max-time", "10", $url)
+            $code = $cr.Out -as [int]
             if ($code -lt 400 -and $code -gt 0) {
                 Info "URL proyek $($p.name) menjawab $code : $url"
             } else {
