@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gojalifs/spanel-plus/internal/app"
 	"github.com/gojalifs/spanel-plus/internal/config"
@@ -110,7 +111,11 @@ func TestActivityMiddlewareLogsErrorText(t *testing.T) {
 
 func TestPanelLogEndpointServesTail(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "panel.log"), []byte("satu\ndua\ntiga\n"), 0o644); err != nil {
+	today := "panel-" + time.Now().Format("2006-01-02") + ".log"
+	if err := os.WriteFile(filepath.Join(dir, today), []byte("satu\ndua\ntiga\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "panel-2026-10-28.log"), []byte("lama\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.Defaults(t.TempDir())
@@ -141,11 +146,28 @@ func TestPanelLogEndpointServesTail(t *testing.T) {
 	if len(tailLines) != 2 || tailLines[0] != "dua" || tailLines[1] != "tiga" {
 		t.Errorf("expected last two lines, got %v", tailLines)
 	}
+
+	// ?date serves an older day's file.
+	rec = call(t, h, "GET", "/api/v1/logs?date=2026-10-28", "")
+	var oldDay map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &oldDay); err != nil {
+		t.Fatal(err)
+	}
+	oldLines, _ := oldDay["lines"].([]any)
+	if len(oldLines) != 1 || oldLines[0] != "lama" {
+		t.Errorf("expected the old day's single line, got %v", oldLines)
+	}
+
+	// A malformed date is a 400, not a file read.
+	rec = call(t, h, "GET", "/api/v1/logs?date=28-10-2026", "")
+	if rec.Code != 400 {
+		t.Errorf("malformed date must be 400, got %d %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestPanelLogEndpointEmptyWhenMissing(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
-	cfg.LogDir = t.TempDir() // no panel.log inside
+	cfg.LogDir = t.TempDir() // no dated log inside
 	doctor := core.Doctor{Runner: platform.ExecRunner{}, Files: platform.OSFileProbe{}, Ports: platform.OSPortProbe{}}
 	application := app.New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), doctor, platform.RealClock{})
 	h := NewHandler(application, slog.New(slog.NewTextHandler(io.Discard, nil)))

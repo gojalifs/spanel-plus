@@ -305,24 +305,43 @@ mengunci folder proyek).
 
 ### Log dan audit
 
-- Log aktivitas panel: `<log_dir>/panel.log` (default
-  `C:\Panel\logs\panel.log`), satu baris JSON per aktivitas:
+- Log aktivitas panel: `<log_dir>/panel-YYYY-MM-DD.log` (default
+  `C:\Panel\logs\panel-2026-10-30.log`), satu file per hari
+  (waktu lokal server), satu baris JSON per aktivitas:
   semua request API (method, path, aktor, status, durasi,
   parameter, dan teks error bila status error), tahap apply
   (snapshot, config generated, `httpd -t`, restart Apache,
   tiap percobaan health check beserta detailnya — status HTTP
   atau error transport seperti refused/timeout — commit,
-  rollback), login/logout, dan autostart supervisor. Lihat
-  dari dashboard: sidebar **Log Panel** (300 baris terakhir).
-  File dirotasi tiap 10 MB (`panel.log.1` menyimpan satu
-  backup). Password/token tidak pernah dicatat — parameter
-  rahasia tampil sebagai `[redacted]`.
+  rollback), login/logout, dan autostart supervisor. File
+  berganti otomatis tengah malam tanpa restart panel; file
+  lebih tua dari 90 hari (≈ 3 bulan) dihapus otomatis saat
+  startup dan tiap pergantian hari. Lihat dari dashboard:
+  sidebar **Log Panel** (300 baris terakhir hari ini);
+  hari lain bisa dibuka langsung dari folder log, atau lewat
+  `GET /api/v1/logs?date=YYYY-MM-DD`. File lama
+  `panel.log` / `panel.log.1` (sebelum log harian) tidak
+  dihapus otomatis — hapus manual sesudah diperiksa bila
+  sudah tidak perlu. Password/token tidak pernah dicatat —
+  parameter rahasia tampil sebagai `[redacted]`.
 - Audit: `<data_dir>/audit.log`, satu baris JSON per aksi,
   ber-aktor per orang (`local:admin` / `ad:<username>`).
-  Audit menjawab "siapa mengubah apa"; panel.log menjawab
+  Audit menjawab "siapa mengubah apa"; log panel menjawab
   "apa yang terjadi, dengan parameter dan error apa".
+  Audit TIDAK ikut rotasi harian maupun prune 90 hari —
+  jejak audit harus utuh, bukan dibuang otomatis.
 - Log proses proyek (supervisor/scheduler):
-  `<data_dir>/projects/<proyek>/<nama>.log`.
+  `<data_dir>/projects/<proyek>/<nama>-YYYY-MM-DD.log` —
+  satu file per (re)start proses, dan file lebih tua dari
+  90 hari dihapus otomatis tiap proses di-start ulang.
+  Tombol Log di dashboard selalu menampilkan file terbaru
+  proses itu, jadi worker yang jalan sejak hari sebelumnya
+  tetap kelihatan lognya. Catatan: worker long-running
+  yang tidak pernah di-restart tetap menulis ke file hari
+  start-nya melewati tengah malam (child memegang handle
+  file-nya langsung); file baru dibuat saat worker
+  di-restart. Split tengah malam yang ketat untuk worker
+  butuh output dialirkan lewat panel — belum diimplementasi.
 - Supervisor: autostart, backoff 1 detik → 30 detik, menyerah
   sesudah 5 gagal beruntun yang tidak stabil; counter reset
   sesudah ≥60 detik stabil. Scheduler menjalankan

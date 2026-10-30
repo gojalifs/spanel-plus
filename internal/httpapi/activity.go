@@ -17,7 +17,7 @@ import (
 )
 
 // Activity logging: every /api/ request leaves one structured line in
-// panel.log — method, path, actor, status, duration, request
+// the panel's daily log — method, path, actor, status, duration, request
 // parameters, and the error text when the status is an error. This is
 // the log the operator reads when an apply fails: it shows what was
 // asked for and what the panel answered, without needing to reproduce
@@ -145,8 +145,10 @@ func activityMiddleware(application *app.Application, logger *slog.Logger, next 
 }
 
 // panelLog serves the tail of the panel's own activity log for the
-// dashboard's Log view. The file may not exist yet on a fresh panel;
-// that is an empty log, not an error.
+// dashboard's Log view. Without ?date it serves today's dated file;
+// ?date=YYYY-MM-DD serves that day's file (400 on a malformed date).
+// The file may not exist yet on a fresh panel; that is an empty log,
+// not an error.
 func (a *api) panelLog(w http.ResponseWriter, r *http.Request) {
 	lines := 200
 	if q := r.URL.Query().Get("lines"); q != "" {
@@ -154,7 +156,16 @@ func (a *api) panelLog(w http.ResponseWriter, r *http.Request) {
 			lines = n
 		}
 	}
-	path := filepath.Join(a.application.LogDir(), logging.FileName)
+	var path string
+	if date := r.URL.Query().Get("date"); date != "" {
+		if _, err := time.Parse("2006-01-02", date); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "format tanggal harus YYYY-MM-DD"})
+			return
+		}
+		path = filepath.Join(a.application.LogDir(), "panel-"+date+".log")
+	} else {
+		path = filepath.Join(a.application.LogDir(), logging.DailyFileName(time.Now()))
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

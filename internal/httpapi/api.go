@@ -134,7 +134,7 @@ func (a *api) processLog(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "layanan proses tidak tersedia"})
 		return
 	}
-	path := core.ProcessLogPath(a.application.ProcessLogDir(), r.PathValue("name"), r.PathValue("proc"))
+	path := core.LatestProcessLogPath(a.application.ProcessLogDir(), r.PathValue("name"), r.PathValue("proc"))
 	text, err := core.TailLog(files, path, 200, 256<<10)
 	if err != nil {
 		writeErr(w, err)

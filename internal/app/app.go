@@ -66,7 +66,8 @@ func (a *Application) AttachAuth(auth *core.AuthService, audit core.AuditLogger)
 func (a *Application) Auth() *core.AuthService { return a.auth }
 
 // LogDir returns the folder holding the panel's own log files
-// (panel.log); the dashboard's Log view reads its tail from here.
+// (panel-YYYY-MM-DD.log, one file per day); the dashboard's Log view
+// reads its tail from here.
 func (a *Application) LogDir() string { return a.cfg.LogDir }
 
 // Audit returns the attached audit sink, or a discarding one.

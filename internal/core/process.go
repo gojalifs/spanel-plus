@@ -102,6 +102,10 @@ func BuildProcessSpec(reg Registry, p Project, name, command, logDir string) (Pr
 		spec.Exe = head
 		spec.Args = fields[1:]
 	}
+	// Best effort: every (re)start retires this process's dated logs
+	// older than the retention window. A prune failure never fails
+	// the start (see PruneProcessLogs).
+	PruneProcessLogs(logDir, p.Name, name, LogRetentionDays)
 	return spec, nil
 }
 
