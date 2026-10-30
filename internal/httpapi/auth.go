@@ -174,6 +174,11 @@ func (a *api) localLogin(w http.ResponseWriter, r *http.Request, auth *core.Auth
 	token, err := auth.Authenticate(password)
 	if err != nil {
 		_ = a.application.Audit().Append(core.AuditEntry{Actor: "anonymous", Action: "POST /api/v1/auth/login", Detail: "failed"})
+		reason := "wrong-password"
+		if errors.Is(err, core.ErrAdminNotConfigured) {
+			reason = "admin-not-configured"
+		}
+		a.logWarn("login failed", "method", "local", "reason", reason)
 		switch {
 		case errors.Is(err, core.ErrAdminNotConfigured):
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -186,6 +191,7 @@ func (a *api) localLogin(w http.ResponseWriter, r *http.Request, auth *core.Auth
 	}
 	refreshSessionCookie(w, token)
 	_ = a.application.Audit().Append(core.AuditEntry{Actor: core.LocalActor, Action: "POST /api/v1/auth/login", Detail: "ok"})
+	a.logInfo("login ok", "method", "local", "actor", core.LocalActor)
 	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "actor": core.LocalActor})
 }
 
@@ -193,6 +199,11 @@ func (a *api) adLogin(w http.ResponseWriter, r *http.Request, auth *core.AuthSer
 	directory, adCfg, adErr := a.application.AD()
 	if !adCfg.Enabled || directory == nil {
 		_ = a.application.Audit().Append(core.AuditEntry{Actor: "anonymous", Action: "POST /api/v1/auth/login", Detail: "failed (ad disabled)"})
+		if adErr != nil {
+			a.logWarn("login failed", "method", "ad", "username", username, "reason", "ad-disabled", "detail", adErr.Error())
+		} else {
+			a.logWarn("login failed", "method", "ad", "username", username, "reason", "ad-disabled")
+		}
 		msg := "login AD belum diaktifkan — aktifkan lewat panel.json (ad_enabled)"
 		if adErr != nil {
 			msg = "login AD belum bisa dipakai: " + adErr.Error()
@@ -205,12 +216,13 @@ func (a *api) adLogin(w http.ResponseWriter, r *http.Request, auth *core.AuthSer
 		// Directory trouble is answered generically too: the login
 		// form must not leak whether the DC is down or the account
 		// is wrong. The detail goes to the panel log only.
-		slog.Warn("ad login error", "err", err)
+		a.logWarn("login failed", "method", "ad", "username", username, "reason", "directory-error", "err", err)
 		_ = a.application.Audit().Append(core.AuditEntry{Actor: "anonymous", Action: "POST /api/v1/auth/login", Detail: "failed (ad)"})
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "username/password salah atau bukan anggota grup IT"})
 		return
 	}
 	if !ok {
+		a.logWarn("login failed", "method", "ad", "username", username, "reason", "wrong-credentials-or-not-member")
 		_ = a.application.Audit().Append(core.AuditEntry{Actor: "anonymous", Action: "POST /api/v1/auth/login", Detail: "failed (ad)"})
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "username/password salah atau bukan anggota grup IT"})
 		return
@@ -223,6 +235,7 @@ func (a *api) adLogin(w http.ResponseWriter, r *http.Request, auth *core.AuthSer
 	}
 	refreshSessionCookie(w, token)
 	_ = a.application.Audit().Append(core.AuditEntry{Actor: actor, Action: "POST /api/v1/auth/login", Detail: "ok"})
+	a.logInfo("login ok", "method", "ad", "actor", actor)
 	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "actor": actor})
 }
 
@@ -243,5 +256,6 @@ func (a *api) authLogout(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 	})
 	_ = a.application.Audit().Append(core.AuditEntry{Actor: actor, Action: "POST /api/v1/auth/logout", Detail: "ok"})
+	a.logInfo("logout", "actor", actor)
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 }

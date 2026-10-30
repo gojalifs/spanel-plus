@@ -1,9 +1,11 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -178,9 +180,9 @@ type fakeHealth struct {
 	calls []string
 }
 
-func (f *fakeHealth) Check(url string) bool {
+func (f *fakeHealth) Check(url string) HealthResult {
 	f.calls = append(f.calls, url)
-	return f.ok
+	return HealthResult{OK: f.ok}
 }
 
 type tickClock struct{ t time.Time }
@@ -526,4 +528,47 @@ func fullEnvForManager() envFiles {
 	dirs[`C:\htdocs\web-app`] = true
 	dirs[`C:\htdocs\web-app/public`] = true
 	return envFiles{dirs: dirs, files: files}
+}
+
+func TestApplyLogsStagesAndHealthAttempts(t *testing.T) {
+	rig := newManagerRig(t)
+	rig.health.ok = false
+	var buf bytes.Buffer
+	rig.mgr.Log = slog.New(slog.NewJSONHandler(&buf, nil))
+	_, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3"), []string{"/web-app"})
+	if err == nil {
+		t.Fatal("expected health check failure")
+	}
+	log := buf.String()
+	for _, want := range []string{
+		`"msg":"apply start"`,
+		`"msg":"apply snapshot taken"`,
+		`"msg":"apply generated config written"`,
+		`"msg":"apply httpd -t ok"`,
+		`"msg":"apply apache restarted"`,
+		`"msg":"health check attempt failed"`,
+		`"attempt":1`,
+		`"attempt":2`,
+		`"msg":"apply failed, rolled back"`,
+		`"stage":"health check /web-app"`,
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("activity log must contain %s, got:\n%s", want, log)
+		}
+	}
+	if !strings.Contains(err.Error(), "did not answer acceptably after 2 attempts") {
+		t.Errorf("final error must carry the attempt budget, got %v", err)
+	}
+}
+
+func TestApplyLogsCommitOnSuccess(t *testing.T) {
+	rig := newManagerRig(t)
+	var buf bytes.Buffer
+	rig.mgr.Log = slog.New(slog.NewJSONHandler(&buf, nil))
+	if _, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3"), []string{"/web-app"}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !strings.Contains(buf.String(), `"msg":"apply committed"`) {
+		t.Errorf("success must log the commit, got:\n%s", buf.String())
+	}
 }

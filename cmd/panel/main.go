@@ -163,6 +163,7 @@ func run() int {
 			wireAD(application, cfg, logger)
 			if projectsSvc != nil {
 				application.AttachServices(projectsSvc, phpMgr, apacheMgr)
+				apacheMgr.Log = logger
 				supervisor.Log = logger
 				scheduler.Log = logger
 				application.AttachRuntime(app.Runtime{Supervisor: supervisor, Scheduler: scheduler}, supervisor, platform.OSFileStore{}, supervisor.LogDir)
@@ -181,6 +182,7 @@ func run() int {
 			wireAD(application, cfg, logger)
 			if projectsSvc != nil {
 				application.AttachServices(projectsSvc, phpMgr, apacheMgr)
+				apacheMgr.Log = logger
 				supervisor.Log = logger
 				scheduler.Log = logger
 				application.AttachRuntime(app.Runtime{Supervisor: supervisor, Scheduler: scheduler}, supervisor, platform.OSFileStore{}, supervisor.LogDir)

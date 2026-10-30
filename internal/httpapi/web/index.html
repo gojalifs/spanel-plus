@@ -16,6 +16,7 @@
       <button type="button" class="nav-item" data-view="projects">Proyek</button>
       <button type="button" class="nav-item" data-view="project-form">Form Proyek</button>
       <button type="button" class="nav-item" data-view="processes">Proses</button>
+      <button type="button" class="nav-item" data-view="logs">Log Panel</button>
     </nav>
     <div class="sidebar-foot muted">port {{.Port}} · sesi 10 menit tanpa aktivitas</div>
   </aside>
@@ -158,6 +159,15 @@
               <pre id="log-body" class="diff"></pre>
               <button id="log-close" type="button">Tutup log</button>
             </div>
+          </section>
+        </section>
+        <section class="view" id="view-logs" hidden>
+          <section class="card">
+            <h2>Log Panel</h2>
+            <p class="muted" id="panel-log-path">Memuat…</p>
+            <button type="button" id="btn-panel-log-reload">Muat ulang</button>
+            <pre id="panel-log-text" class="diff">Memuat…</pre>
+            <p class="muted">Satu baris per aktivitas: request API beserta parameternya, tahap apply, percobaan health check, dan login/logout. Password dan token tidak pernah dicatat (tampil sebagai [redacted]). File mentahnya ada di folder logs di sebelah panel.exe, dirotasi tiap 10 MB.</p>
           </section>
         </section>
       </div>

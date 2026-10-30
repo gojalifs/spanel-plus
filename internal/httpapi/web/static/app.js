@@ -53,7 +53,7 @@ async function api(method, path, body) {
 
 // ---------- sidebar navigation ----------
 
-const views = ['overview', 'php', 'projects', 'project-form', 'processes'];
+const views = ['overview', 'php', 'projects', 'project-form', 'processes', 'logs'];
 
 function showView(name) {
   for (const v of views) {
@@ -65,6 +65,7 @@ function showView(name) {
   });
   // On mobile the sidebar is off-canvas: close it after choosing.
   document.body.classList.remove('sidebar-open');
+  if (name === 'logs') loadPanelLog();
 }
 
 // ---------- M5: login admin ----------
@@ -475,6 +476,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btn-sidebar-toggle').addEventListener('click', () => {
     document.body.classList.toggle('sidebar-open');
   });
+  $('btn-panel-log-reload').addEventListener('click', loadPanelLog);
 
   $('php-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -736,4 +738,18 @@ function collectProcesses() {
     });
   }
   return out;
+}
+
+// ---------- activity log ----------
+
+async function loadPanelLog() {
+  const text = $('panel-log-text');
+  const pathNote = $('panel-log-path');
+  try {
+    const data = await api('GET', '/api/v1/logs?lines=300');
+    pathNote.textContent = 'File: ' + data.path + ' (' + data.total + ' baris)';
+    text.textContent = data.lines.length ? data.lines.join('\n') : '(log masih kosong)';
+  } catch (err) {
+    text.textContent = 'Gagal memuat log: ' + err.message;
+  }
 }

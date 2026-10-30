@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,10 +18,33 @@ type ApacheServiceControl interface {
 	Status(name string) (string, error)
 }
 
-// HealthChecker probes one URL and reports whether the application
-// answered acceptably.
+// HealthResult is one probe's outcome. Status is the HTTP status when
+// the server answered (0 otherwise); Err is the transport error when
+// the server did not answer at all. Either one explains a failed check
+// in the activity log — the old bool-only result hid exactly that
+// (refused? 404? 500? timeout?) from the operator debugging a failed
+// apply.
+// HealthChecker probes one URL and reports the outcome in detail.
+type HealthResult struct {
+	OK     bool
+	Status int
+	Err    error
+}
+
+// Describe renders the failure detail for logs and error messages:
+// "status 404", the transport error, or "no response".
+func (r HealthResult) Describe() string {
+	if r.Status != 0 {
+		return fmt.Sprintf("status %d", r.Status)
+	}
+	if r.Err != nil {
+		return r.Err.Error()
+	}
+	return "no response"
+}
+
 type HealthChecker interface {
-	Check(url string) bool
+	Check(url string) HealthResult
 }
 
 // ApplyConfig locates everything the apply pipeline touches.
@@ -60,8 +84,23 @@ type ApacheManager struct {
 	Clock   Clock
 	Sleep   func(time.Duration)
 	Cfg     ApplyConfig
+	Log     *slog.Logger // nil = no activity logging (direct CLI use)
 
 	mu sync.Mutex // one apply at a time; config files are global state
+}
+
+// logInfo/logError are nil-safe: the manager logs only when a logger
+// was wired in (serve/desktop do; direct CLI use does not).
+func (m *ApacheManager) logInfo(msg string, args ...any) {
+	if m.Log != nil {
+		m.Log.Info(msg, args...)
+	}
+}
+
+func (m *ApacheManager) logError(msg string, args ...any) {
+	if m.Log != nil {
+		m.Log.Error(msg, args...)
+	}
 }
 
 // TestConfig runs httpd -t against the currently written config.
@@ -81,7 +120,12 @@ func (m *ApacheManager) Status() (string, error) {
 
 // Restart restarts the managed Apache service (outside an apply).
 func (m *ApacheManager) Restart() error {
-	return m.Service.Restart(m.Cfg.ApacheService)
+	if err := m.Service.Restart(m.Cfg.ApacheService); err != nil {
+		m.logError("apache restart failed", "service", m.Cfg.ApacheService, "err", err)
+		return err
+	}
+	m.logInfo("apache restarted", "service", m.Cfg.ApacheService)
+	return nil
 }
 
 // Apply moves Apache + registry to the candidate state, or leaves
@@ -91,6 +135,12 @@ func (m *ApacheManager) Apply(ctx context.Context, candidate Registry, healthPat
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	names := make([]string, 0, len(candidate.Projects))
+	for _, p := range candidate.Projects {
+		names = append(names, p.Name)
+	}
+	m.logInfo("apply start", "projects", names, "health_paths", healthPaths)
+
 	if err := candidate.ValidateStructure(); err != nil {
 		return ApplyResult{}, err
 	}
@@ -98,32 +148,44 @@ func (m *ApacheManager) Apply(ctx context.Context, candidate Registry, healthPat
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	files := make([]string, 0, len(generated))
+	for name := range generated {
+		files = append(files, name)
+	}
+	sort.Strings(files)
 
 	snapshot, err := m.takeSnapshot()
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("apply aborted before any change (snapshot): %w", err)
 	}
+	m.logInfo("apply snapshot taken", "dir", snapshot.dir)
 
 	fail := func(stage string, cause error) (ApplyResult, error) {
 		rbErr := m.restoreSnapshot(snapshot)
 		if rbErr != nil {
+			m.logError("apply failed, rollback failed", "stage", stage, "err", cause, "rollback_err", rbErr, "snapshot", snapshot.dir)
 			return ApplyResult{}, fmt.Errorf("apply failed at %s: %v — AND ROLLBACK FAILED: %v (snapshot kept at %s, restore manually)", stage, cause, rbErr, snapshot.dir)
 		}
 		if rErr := m.Service.Restart(m.Cfg.ApacheService); rErr != nil {
+			m.logError("apply failed, apache restart after rollback failed", "stage", stage, "err", cause, "restart_err", rErr)
 			return ApplyResult{}, fmt.Errorf("apply failed at %s: %v — config rolled back, but restarting Apache onto the old config failed: %v", stage, cause, rErr)
 		}
+		m.logError("apply failed, rolled back", "stage", stage, "err", cause)
 		return ApplyResult{}, fmt.Errorf("apply failed at %s: %v — rolled back, previous config is live again", stage, cause)
 	}
 
 	if err := m.writeGenerated(generated); err != nil {
 		return fail("write generated config", err)
 	}
+	m.logInfo("apply generated config written", "files", files)
 	if err := m.TestConfig(ctx); err != nil {
 		return fail("httpd -t", err)
 	}
+	m.logInfo("apply httpd -t ok")
 	if err := m.Service.Restart(m.Cfg.ApacheService); err != nil {
 		return fail("restart apache", err)
 	}
+	m.logInfo("apply apache restarted", "service", m.Cfg.ApacheService)
 	for _, path := range healthPaths {
 		if err := m.healthCheck(path); err != nil {
 			return fail("health check "+path, err)
@@ -140,26 +202,30 @@ func (m *ApacheManager) Apply(ctx context.Context, candidate Registry, healthPat
 	}
 	m.pruneBackups()
 
-	files := make([]string, 0, len(generated))
-	for name := range generated {
-		files = append(files, name)
-	}
-	sort.Strings(files)
+	m.logInfo("apply committed", "files", files, "backup", snapshot.dir)
 	return ApplyResult{BackupDir: snapshot.dir, FilesWritten: files, HealthChecked: healthPaths}, nil
 }
 
 // healthCheck polls one path with the configured attempt budget.
+// Every attempt is logged with what the probe actually saw, so a
+// failed apply leaves a trail that distinguishes "Apache belum
+// dengar" (refused) from "config salah target" (404) and "aplikasi
+// error" (500) — the distinction the old bool-only result erased.
 func (m *ApacheManager) healthCheck(path string) error {
 	url := strings.TrimSuffix(m.Cfg.HealthBaseURL, "/") + path
+	var last HealthResult
 	for i := 0; i < m.Cfg.HealthAttempts; i++ {
-		if m.Health.Check(url) {
+		last = m.Health.Check(url)
+		if last.OK {
+			m.logInfo("health check ok", "url", url, "attempt", i+1, "of", m.Cfg.HealthAttempts)
 			return nil
 		}
+		m.logInfo("health check attempt failed", "url", url, "attempt", i+1, "of", m.Cfg.HealthAttempts, "detail", last.Describe())
 		if i+1 < m.Cfg.HealthAttempts {
 			m.Sleep(m.Cfg.HealthInterval)
 		}
 	}
-	return fmt.Errorf("%s did not answer acceptably after %d attempts", url, m.Cfg.HealthAttempts)
+	return fmt.Errorf("%s did not answer acceptably after %d attempts (last: %s)", url, m.Cfg.HealthAttempts, last.Describe())
 }
 
 // writeGenerated makes GeneratedDir match the generated set exactly:

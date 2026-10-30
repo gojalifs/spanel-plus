@@ -15,8 +15,9 @@ type HTTPHealthChecker struct {
 	Timeout time.Duration // per-check timeout; default 2s when zero
 }
 
-// Check probes url once.
-func (h HTTPHealthChecker) Check(url string) bool {
+// Check probes url once and reports what it saw: the HTTP status when
+// the server answered, or the transport error when it did not.
+func (h HTTPHealthChecker) Check(url string) core.HealthResult {
 	timeout := h.Timeout
 	if timeout == 0 {
 		timeout = 2 * time.Second
@@ -24,11 +25,11 @@ func (h HTTPHealthChecker) Check(url string) bool {
 	client := &http.Client{Timeout: timeout}
 	resp, err := client.Get(url)
 	if err != nil {
-		return false
+		return core.HealthResult{Err: err}
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
-	return resp.StatusCode < 400
+	return core.HealthResult{OK: resp.StatusCode < 400, Status: resp.StatusCode}
 }
 
 var _ core.HealthChecker = HTTPHealthChecker{}

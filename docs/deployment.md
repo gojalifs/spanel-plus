@@ -296,9 +296,22 @@ mengunci folder proyek).
 
 ### Log dan audit
 
-- Log panel: `log_dir` (atau default) + output service.
+- Log aktivitas panel: `<log_dir>/panel.log` (default
+  `C:\Panel\logs\panel.log`), satu baris JSON per aktivitas:
+  semua request API (method, path, aktor, status, durasi,
+  parameter, dan teks error bila status error), tahap apply
+  (snapshot, config generated, `httpd -t`, restart Apache,
+  tiap percobaan health check beserta detailnya — status HTTP
+  atau error transport seperti refused/timeout — commit,
+  rollback), login/logout, dan autostart supervisor. Lihat
+  dari dashboard: sidebar **Log Panel** (300 baris terakhir).
+  File dirotasi tiap 10 MB (`panel.log.1` menyimpan satu
+  backup). Password/token tidak pernah dicatat — parameter
+  rahasia tampil sebagai `[redacted]`.
 - Audit: `<data_dir>/audit.log`, satu baris JSON per aksi,
   ber-aktor per orang (`local:admin` / `ad:<username>`).
+  Audit menjawab "siapa mengubah apa"; panel.log menjawab
+  "apa yang terjadi, dengan parameter dan error apa".
 - Log proses proyek (supervisor/scheduler):
   `<data_dir>/projects/<proyek>/<nama>.log`.
 - Supervisor: autostart, backoff 1 detik → 30 detik, menyerah

@@ -38,7 +38,7 @@ func NewHandler(application *app.Application, logger *slog.Logger) http.Handler 
 	})
 
 	// M3 state API (projects, PHP versions, Apache actions).
-	(&api{application: application}).register(mux)
+	(&api{application: application, logger: logger}).register(mux)
 
 	staticFS, err := fs.Sub(webFS, "web/static")
 	if err != nil {
@@ -64,10 +64,11 @@ func NewHandler(application *app.Application, logger *slog.Logger) http.Handler 
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})
 
-	// M5: auth gate outside, audit outside that — unauthenticated
-	// state attempts are rejected before they reach a handler, and
-	// authenticated state changes are recorded.
-	return auditMiddleware(application, logger, authMiddleware(application, mux))
+	// M5: activity outside, audit inside it, auth gate inside that —
+	// unauthenticated attempts are rejected before they reach a
+	// handler but still leave an activity line; authenticated state
+	// changes are recorded in the audit log as well.
+	return activityMiddleware(application, logger, auditMiddleware(application, logger, authMiddleware(application, mux)))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

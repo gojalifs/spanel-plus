@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -17,6 +18,21 @@ import (
 
 type api struct {
 	application *app.Application
+	logger      *slog.Logger // nil = no activity logging (defensive only)
+}
+
+// logInfo/logWarn are nil-safe: tests may build an api without a
+// logger, production always passes one through NewHandler.
+func (a *api) logInfo(msg string, args ...any) {
+	if a.logger != nil {
+		a.logger.Info(msg, args...)
+	}
+}
+
+func (a *api) logWarn(msg string, args ...any) {
+	if a.logger != nil {
+		a.logger.Warn(msg, args...)
+	}
 }
 
 func (a *api) register(mux *http.ServeMux) {
@@ -25,6 +41,7 @@ func (a *api) register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/auth/status", a.authStatus)
 	mux.HandleFunc("POST /api/v1/auth/logout", a.authLogout)
 	mux.HandleFunc("GET /api/v1/overview", a.overview)
+	mux.HandleFunc("GET /api/v1/logs", a.panelLog)
 	mux.HandleFunc("GET /api/v1/projects", a.listProjects)
 	mux.HandleFunc("POST /api/v1/projects", a.addProject)
 	mux.HandleFunc("PUT /api/v1/projects/{name}", a.updateProject)

@@ -115,6 +115,8 @@ func (s *Supervisor) Start(ctx context.Context) error {
 			if def.Autostart && def.Kind == ProcessKindLongRunning {
 				if err := s.StartProcess(p.Name, def.Name); err != nil && s.Log != nil {
 					s.Log.Error("supervisor autostart failed", "project", p.Name, "process", def.Name, "err", err)
+				} else if err == nil && s.Log != nil {
+					s.Log.Info("supervisor autostart ok", "project", p.Name, "process", def.Name)
 				}
 			}
 		}
