@@ -525,6 +525,15 @@ func (m *PHPManager) SetExtensions(ctx context.Context, version string, desired 
 			return SetExtensionsResult{}, fmt.Errorf("extension %q tidak dikenal untuk php %s", name, version)
 		}
 		if !ext.Toggleable {
+			// A non-toggleable extension requested in its current
+			// state is a no-op, not an error: a full-checklist
+			// submission legitimately includes builtins (checked,
+			// always loaded) and not-installed rows (unchecked).
+			// Only a request that would CHANGE it is refused.
+			if want == ext.Loaded {
+				delete(norm, name)
+				continue
+			}
 			return SetExtensionsResult{}, fmt.Errorf("extension %q tidak bisa diubah dari panel (status: %s)", name, ext.Status)
 		}
 		if want && ext.IniState != "enabled" && !ext.HasDLL {
@@ -542,7 +551,11 @@ func (m *PHPManager) SetExtensions(ctx context.Context, version string, desired 
 			if !ok {
 				return SetExtensionsResult{}, fmt.Errorf("pdo_sqlsrv membutuhkan pdo, tapi pdo tidak tersedia untuk php %s", version)
 			}
-			if pdo.IniState != "enabled" {
+			// A loaded pdo already satisfies the dependency — that
+			// includes builtin pdo (Loaded, but no ini line and no
+			// DLL: IniState "absent"). Only an unloaded pdo needs
+			// an ini line added.
+			if !pdo.Loaded && pdo.IniState != "enabled" {
 				if !pdo.Toggleable {
 					return SetExtensionsResult{}, fmt.Errorf("pdo_sqlsrv membutuhkan pdo, tapi pdo tidak bisa diubah dari panel (status: %s)", pdo.Status)
 				}

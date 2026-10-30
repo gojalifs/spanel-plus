@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gojalifs/spanel-plus/internal/core"
 )
@@ -83,6 +84,22 @@ func DefaultApacheCandidates() []string {
 		`C:\Apache24`,
 		`C:\m0\Apache24`,
 	}
+}
+
+// PHPScanRoot derives the PHP auto-register scan folder from an Apache
+// installation root under the M0 layout: <root>/Apache24 lives next
+// to <root>/php, so the scan folder is <root>/php. Empty when
+// apacheHome is empty or has no parent (no scan then). The split
+// accepts either separator, so panel.json paths written either way
+// work; the result always uses forward slashes, matching the
+// panel.json convention (C:/m0/php).
+func PHPScanRoot(apacheHome string) string {
+	home := strings.ReplaceAll(strings.TrimRight(apacheHome, `/\`), `\`, "/")
+	i := strings.LastIndex(home, "/")
+	if i < 0 {
+		return ""
+	}
+	return home[:i] + "/php"
 }
 
 // Defaults returns the config used when no panel.json exists.

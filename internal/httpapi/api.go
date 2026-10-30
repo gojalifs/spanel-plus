@@ -52,6 +52,7 @@ func (a *api) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/projects/{name}/preview-set-php", a.previewSetPHP)
 	mux.HandleFunc("GET /api/v1/projects/{name}/warnings", a.projectWarnings)
 	mux.HandleFunc("POST /api/v1/php", a.registerPHP)
+	mux.HandleFunc("POST /api/v1/php/scan", a.scanPHP)
 	mux.HandleFunc("DELETE /api/v1/php/{version}", a.removePHP)
 	mux.HandleFunc("GET /api/v1/php/{version}/modules", a.phpModules)
 	mux.HandleFunc("GET /api/v1/php/{version}/extensions", a.phpExtensions)
@@ -363,6 +364,21 @@ func (a *api) registerPHP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, reg)
+}
+
+// scanPHP runs the PHP folder scan (same scan as panel startup) and
+// reports what it registered and what it skipped.
+func (a *api) scanPHP(w http.ResponseWriter, r *http.Request) {
+	_, php, _ := a.services(w)
+	if php == nil {
+		return
+	}
+	res, err := php.Scan(r.Context())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (a *api) removePHP(w http.ResponseWriter, r *http.Request) {

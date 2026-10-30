@@ -196,6 +196,17 @@ tidak hilang, hanya perlu login ulang.
   Panel mem-probe `php -v`/`php -m`, mendaftarkan versi yang
   terdeteksi, dan **menolak build TS** (hanya NTS yang dipakai
   `mod_fcgid`). `php.ini` produksi hanya dibuat bila belum ada.
+- **PHP auto-register**: panel juga memindai folder
+  `<root Apache>/php/` (layout M0: `C:\m0\Apache24` →
+  `C:\m0\php\`) setiap kali service start, dan mendaftarkan
+  otomatis tiap subfolder PHP yang belum terdaftar — tanpa
+  menghapus pendaftaran yang sudah ada. Folder yang gagal
+  (bukan build PHP, build TS, versi sudah terdaftar dari
+  folder lain) dilewati dengan peringatan di log panel, tidak
+  pernah menggagalkan startup. Pindai manual tanpa restart:
+  dashboard → Versi PHP → **Pindai folder PHP**, atau CLI
+  `panel.exe php scan`. Bila tidak ada folder `php/` di
+  sebelah Apache, pemindaian tidak melakukan apa-apa.
 - **Extension per versi PHP**: kelola dari dashboard (PHP
   Manager → tombol Extension → checklist), tanpa edit
   `php.ini` manual. Checklist berlaku per versi PHP, bukan
@@ -214,7 +225,9 @@ tidak hilang, hanya perlu login ulang.
   Microsoft ODBC Driver tetap instalasi manual: unduh driver
   Microsoft untuk PHP (NTS x64, sesuai versi PHP) ke `ext/`,
   instal ODBC Driver, lalu centang `pdo_sqlsrv` di panel
-  (`pdo` ikut aktif otomatis sebagai dependensinya).
+  (`pdo` ikut aktif otomatis sebagai dependensinya bila belum
+  termuat; bila `pdo` sudah bawaan PHP, tidak ada baris yang
+  ditambahkan untuknya).
 - **Proyek**: tambahkan lewat dashboard (nama proyek = segmen
   path URL, mis. proyek `app-laravel` dilayani di
   `http://<server>/app-laravel`). Laravel dan CodeIgniter 4

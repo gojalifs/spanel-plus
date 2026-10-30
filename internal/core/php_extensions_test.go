@@ -309,3 +309,78 @@ func TestSetExtensionsNoChange(t *testing.T) {
 		t.Errorf("no-change save must not write backups")
 	}
 }
+
+// builtinPdoProber wraps iniDrivenProber and additionally reports pdo
+// as always loaded (compiled in: no DLL, no ini line) — the shape
+// that used to break pdo_sqlsrv activation with "pdo tidak bisa
+// diubah (status: builtin)".
+type builtinPdoProber struct{ iniDrivenProber }
+
+func (p builtinPdoProber) Probe(ctx context.Context, dir string) (PHPProbeResult, error) {
+	res, err := p.iniDrivenProber.Probe(ctx, dir)
+	if err != nil {
+		return res, err
+	}
+	res.Modules = append(res.Modules, "pdo")
+	return res, nil
+}
+
+func TestSetExtensionsBuiltinPdo(t *testing.T) {
+	mgr, fs := newExtRig(t)
+	base, ok := mgr.Prober.(iniDrivenProber)
+	if !ok {
+		t.Fatalf("rig prober must be iniDrivenProber, got %T", mgr.Prober)
+	}
+	mgr.Prober = builtinPdoProber{base}
+	ctx := context.Background()
+	writeIni(t, fs, ";extension=pdo_sqlsrv\n")
+	writeDLL(t, fs, "pdo_sqlsrv")
+	// NOTE: no pdo DLL, no pdo ini line — pdo is builtin.
+
+	// Inventory sanity: pdo builtin, pdo_sqlsrv inactive.
+	inv, err := mgr.Extensions(ctx, "8.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]PHPExtension{}
+	for _, e := range inv.Extensions {
+		byName[e.Name] = e
+	}
+	if byName["pdo"].Status != ExtensionBuiltin || !byName["pdo"].Loaded || byName["pdo"].Toggleable {
+		t.Fatalf("pdo must be builtin+loaded+untoggleable, got %+v", byName["pdo"])
+	}
+	if byName["pdo_sqlsrv"].Status != ExtensionInactive {
+		t.Fatalf("pdo_sqlsrv must be inactive, got %+v", byName["pdo_sqlsrv"])
+	}
+
+	// Enabling pdo_sqlsrv must succeed WITHOUT auto-enabling pdo:
+	// builtin pdo already satisfies the dependency.
+	res, err := mgr.SetExtensions(ctx, "8.3", map[string]bool{"pdo_sqlsrv": true})
+	if err != nil {
+		t.Fatalf("pdo_sqlsrv enable with builtin pdo: %v", err)
+	}
+	if len(res.AutoEnabled) != 0 {
+		t.Errorf("autoEnabled = %v, want none (pdo is builtin)", res.AutoEnabled)
+	}
+	ini := readIni(t, fs)
+	if !strings.Contains(ini, "extension=pdo_sqlsrv\n") {
+		t.Errorf("ini must enable pdo_sqlsrv:\n%s", ini)
+	}
+	if strings.Contains(ini, "extension=pdo\n") {
+		t.Errorf("builtin pdo must not gain an ini line:\n%s", ini)
+	}
+
+	// Requesting builtin pdo in its current state is a no-op, not an error.
+	res, err = mgr.SetExtensions(ctx, "8.3", map[string]bool{"pdo": true})
+	if err != nil {
+		t.Fatalf("builtin pdo requested as-is must not error: %v", err)
+	}
+	if res.Changed {
+		t.Errorf("builtin pdo requested as-is must not change anything")
+	}
+
+	// Disabling builtin pdo is still refused.
+	if _, err := mgr.SetExtensions(ctx, "8.3", map[string]bool{"pdo": false}); err == nil {
+		t.Errorf("disabling builtin pdo must be refused")
+	}
+}

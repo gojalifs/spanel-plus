@@ -104,6 +104,7 @@ Commands:
   project preview N V   Preview diff config bila PHP proyek diganti ke V (tanpa apply)
   php list              Daftar versi PHP terdaftar
   php add --path C:\panel\php\8.2   Daftarkan PHP; versi terdeteksi dari php.exe (build TS ditolak)
+  php scan              Daftarkan otomatis PHP di folder scan (<root Apache>/php) yang belum terdaftar
   php remove V          Hapus versi PHP (ditolak bila masih dipakai proyek)
   php modules V         Daftar extension PHP versi V
   process list          Status runtime proses CLI per proyek (dari supervisor panel)
@@ -527,7 +528,7 @@ func (c *CLI) runProject(args []string) int {
 
 func (c *CLI) runPHP(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(c.deps.ErrOut, "usage: panel php list|add|remove|modules ...")
+		fmt.Fprintln(c.deps.ErrOut, "usage: panel php list|add|remove|modules|scan ...")
 		return 2
 	}
 	client, code := c.apiClient()
@@ -586,6 +587,21 @@ func (c *CLI) runPHP(args []string) int {
 			return c.apiErr(err)
 		}
 		fmt.Fprintln(c.deps.Out, strings.Join(mods, ", "))
+		return 0
+	case "scan":
+		res, err := client.ScanPHP()
+		if err != nil {
+			return c.apiErr(err)
+		}
+		if len(res.Registered) == 0 && len(res.Skipped) == 0 {
+			fmt.Fprintf(c.deps.Out, "Tidak ada PHP baru di %s.\n", res.Root)
+		}
+		for _, v := range res.Registered {
+			fmt.Fprintf(c.deps.Out, "PHP %s terdaftar.\n", v)
+		}
+		for _, s := range res.Skipped {
+			fmt.Fprintf(c.deps.Out, "PERINGATAN: %s dilewati: %s\n", s.Path, s.Reason)
+		}
 		return 0
 	default:
 		fmt.Fprintf(c.deps.ErrOut, "subcommand php tidak dikenal: %q\n", args[0])

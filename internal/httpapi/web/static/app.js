@@ -242,11 +242,12 @@ async function showModules(version) {
       cb.type = 'checkbox';
       cb.dataset.name = e.name;
       // Tercentang = aktif di php.ini ATAU sedang termuat (php -m).
-      // Yang kedua penting buat extension bawaan (Core, date, dsb.):
-      // mereka termuat tanpa baris ini, jadi tanpa ini mereka tampil
-      // tidak tercentang padahal aktif. Extension rusak (baris ini
-      // aktif tapi tidak termuat) tetap tercentang, sesuai konfigurasinya.
-      const enabled = e.ini_state === 'enabled' || e.status === 'active';
+      // Yang kedua penting buat extension bawaan (Core, date, pdo,
+      // dsb.): mereka termuat tanpa baris ini, jadi tanpa ini mereka
+      // tampil tidak tercentang padahal aktif. Extension rusak (baris
+      // ini aktif tapi tidak termuat) tetap tercentang, sesuai
+      // konfigurasinya.
+      const enabled = e.ini_state === 'enabled' || e.loaded;
       cb.checked = enabled;
       extState.initial[e.name] = enabled;
       if (!e.toggleable) cb.disabled = true;
@@ -490,6 +491,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   $('php-ext-save').addEventListener('click', saveExtensions);
+  $('php-scan').addEventListener('click', async () => {
+    try {
+      const res = await api('POST', '/api/v1/php/scan', {});
+      let msg = 'Pindai ' + res.root + ': ';
+      if (!res.registered?.length && !res.skipped?.length) {
+        msg += 'tidak ada PHP baru.';
+      } else {
+        if (res.registered?.length) msg += 'terdaftar: ' + res.registered.join(', ') + '. ';
+        if (res.skipped?.length) msg += 'dilewati: ' + res.skipped.map(s => s.path + ' (' + s.reason + ')').join('; ') + '.';
+      }
+      toast(msg);
+      loadAll();
+    } catch (e) {
+      toast(e.message, false);
+    }
+  });
 
   $('project-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();

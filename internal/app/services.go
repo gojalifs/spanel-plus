@@ -29,6 +29,8 @@ type PHPOps interface {
 	Modules(ctx context.Context, version string) ([]string, error)
 	Extensions(ctx context.Context, version string) (core.PHPExtensionInventory, error)
 	SetExtensions(ctx context.Context, version string, desired map[string]bool) (core.SetExtensionsResult, error)
+	// Scan auto-registers PHP builds found in the manager's scan root.
+	Scan(ctx context.Context) (core.AutoRegisterResult, error)
 }
 
 // ApacheOps is the managed-Apache surface for the API.

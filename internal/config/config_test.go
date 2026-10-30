@@ -99,3 +99,18 @@ func TestValidateRejectsBadPort(t *testing.T) {
 		t.Fatal("port 0 must be rejected")
 	}
 }
+
+func TestPHPScanRoot(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{`C:/m0/Apache24`, `C:/m0/php`},
+		{`C:\xampp\apache`, `C:/xampp/php`},
+		{`C:/m0/Apache24/`, `C:/m0/php`},
+		{``, ``},
+		{`Apache24`, ``},
+	}
+	for _, c := range cases {
+		if got := PHPScanRoot(c.in); got != c.want {
+			t.Errorf("PHPScanRoot(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

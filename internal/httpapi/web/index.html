@@ -75,7 +75,8 @@
             <form id="php-form" class="inline-form">
               <input id="php-path" type="text" placeholder="Folder PHP, mis. C:\php\8.3" size="34" required>
               <button type="submit">Daftarkan versi PHP</button>
-              <span class="muted">Versi terdeteksi otomatis dari <code>php.exe -v</code>; build TS ditolak (fcgid butuh NTS).</span>
+              <button id="php-scan" type="button">Pindai folder PHP</button>
+              <span class="muted">Versi terdeteksi otomatis dari <code>php.exe -v</code>; build TS ditolak (fcgid butuh NTS). Pindai mendaftarkan otomatis PHP di folder <code>&lt;root Apache&gt;/php</code> yang belum terdaftar.</span>
             </form>
             <div id="php-modules" hidden>
               <h3>Extension (<span id="php-modules-title"></span>)</h3>

@@ -96,6 +96,7 @@ type APIClient interface {
 	RegisterPHP(path string) (core.PHPRegistration, error)
 	RemovePHP(version string) error
 	PHPModules(version string) ([]string, error)
+	ScanPHP() (core.AutoRegisterResult, error)
 	ApacheStatus() (string, error)
 	ApacheTest() error
 	ApacheRestart() error
@@ -255,6 +256,12 @@ func (c *httpAPIClient) RegisterPHP(path string) (core.PHPRegistration, error) {
 
 func (c *httpAPIClient) RemovePHP(version string) error {
 	return c.call(http.MethodDelete, "/api/v1/php/"+version, nil, nil)
+}
+
+func (c *httpAPIClient) ScanPHP() (core.AutoRegisterResult, error) {
+	var res core.AutoRegisterResult
+	err := c.call(http.MethodPost, "/api/v1/php/scan", nil, &res)
+	return res, err
 }
 
 func (c *httpAPIClient) PHPModules(version string) ([]string, error) {

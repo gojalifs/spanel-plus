@@ -28,6 +28,27 @@ func main() {
 	os.Exit(run())
 }
 
+// autoRegisterPHP runs the PHP folder scan at panel startup: PHP
+// builds newly dropped into the scan folder register themselves, and
+// per-folder failures stay warnings in the panel log. A bad folder
+// must never break startup, so a scan error is logged, not returned.
+func autoRegisterPHP(ctx context.Context, phpMgr *core.PHPManager, logger *slog.Logger) {
+	if phpMgr == nil || logger == nil {
+		return
+	}
+	res, err := phpMgr.Scan(ctx)
+	if err != nil {
+		logger.Warn("auto-register php gagal", "err", err)
+		return
+	}
+	for _, s := range res.Skipped {
+		logger.Warn("auto-register php dilewati", "path", s.Path, "reason", s.Reason)
+	}
+	if len(res.Registered) > 0 {
+		logger.Info("auto-register php", "root", res.Root, "registered", res.Registered)
+	}
+}
+
 func run() int {
 	// All panel files live next to the binary (Plan D9): config,
 	// data, logs. The binary's folder is the one stable anchor a
@@ -115,6 +136,8 @@ func run() int {
 			Prober:      platform.ExecPHPProber{Runner: platform.ExecRunner{}},
 			Files:       fileStore,
 			RuntimeBase: filepath.Join(wireCfg.DataDir, "php-runtime"),
+			// M0 layout: the Apache home's parent holds php/.
+			ScanRoot: config.PHPScanRoot(apacheHome),
 		}
 		apacheMgr = manager
 		projectOps = projectsSvc
@@ -171,6 +194,7 @@ func run() int {
 			application.AttachApachePort(apachePort)
 			handler := httpapi.NewHandler(application, logger)
 			return platform.RunPanel(buildinfo.ServiceName, func(ctx context.Context) error {
+				autoRegisterPHP(ctx, phpMgr, logger)
 				return application.Run(ctx, handler)
 			})
 		},
@@ -197,6 +221,7 @@ func run() int {
 				StartServer: func() (func(), error) {
 					ctx, cancel := context.WithCancel(context.Background())
 					go func() {
+						autoRegisterPHP(ctx, phpMgr, logger)
 						runErr = application.Run(ctx, handler)
 						close(finished)
 					}()

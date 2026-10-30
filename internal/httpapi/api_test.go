@@ -75,6 +75,10 @@ func (f *fakePHP) SetExtensions(context.Context, string, map[string]bool) (core.
 	return core.SetExtensionsResult{}, nil
 }
 
+func (f *fakePHP) Scan(context.Context) (core.AutoRegisterResult, error) {
+	return core.AutoRegisterResult{Root: "/logs/php"}, nil
+}
+
 type fakeApache struct{ restarted bool }
 
 func (f *fakeApache) Status() (string, error)          { return "running", nil }
@@ -274,5 +278,20 @@ func TestProcessEndpoints(t *testing.T) {
 	rec = call(t, h, http.MethodPost, "/api/v1/projects/app/schedule-run", "")
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "sched-ok") {
 		t.Errorf("schedule-run = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPHPScanEndpoint(t *testing.T) {
+	h, _ := apiHandler(t)
+	rec := call(t, h, http.MethodPost, "/api/v1/php/scan", "")
+	if rec.Code != 200 {
+		t.Fatalf("scan = %d %s", rec.Code, rec.Body.String())
+	}
+	var res map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res["root"] != "/logs/php" {
+		t.Errorf("scan root = %v, want /logs/php", res["root"])
 	}
 }

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -29,6 +30,10 @@ type PHPManager struct {
 	// RuntimeBase is the panel-owned folder for per-version runtime
 	// dirs (session & temp paths written into generated php.ini).
 	RuntimeBase string
+	// ScanRoot is the folder whose immediate subdirectories are
+	// auto-registered by Scan (M0 layout: <root>/php). Empty means
+	// no auto-register; main derives it from the Apache home.
+	ScanRoot string
 }
 
 // Register probes the folder at path, validates the build, registers
@@ -69,6 +74,87 @@ func (m *PHPManager) Register(ctx context.Context, path string) (PHPRegistration
 			"arsitektur PHP terdeteksi "+probe.Arch+" — pastikan cocok dengan arsitektur Apache (umumnya x64).")
 	}
 	return reg, nil
+}
+
+// AutoRegisterResult reports one PHP folder scan.
+type AutoRegisterResult struct {
+	Root string `json:"root"`
+	// Registered versions newly registered by this scan.
+	Registered []string `json:"registered,omitempty"`
+	// Skipped folders that were looked at but left alone, with reasons.
+	Skipped []AutoRegisterSkip `json:"skipped,omitempty"`
+}
+
+// AutoRegisterSkip is one folder the scan left alone, with the reason.
+type AutoRegisterSkip struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+// samePath compares Windows folder paths ignoring separator style,
+// trailing separators, and case (Windows paths are case-insensitive).
+// Registry paths were typed by hand at register time, scan paths are
+// built with joinPath — without this, the same folder compares unequal.
+func samePath(a, b string) bool {
+	norm := func(p string) string {
+		p = strings.ReplaceAll(p, `\`, "/")
+		p = strings.TrimRight(p, "/")
+		return strings.ToLower(p)
+	}
+	return norm(a) == norm(b)
+}
+
+// Scan registers every PHP build found in ScanRoot's immediate
+// subdirectories that is not already registered (compared by folder
+// path, not version string). It is idempotent: already-registered
+// folders are silently left alone, and it never unregisters anything.
+// Per-folder failures (missing php.exe, thread-safe build, a version
+// already registered from another folder) become Skipped entries, not
+// errors — a bad folder must never break panel startup or a manual
+// rescan. The only hard error is an unreadable registry or scan
+// folder listing. An empty ScanRoot scans nothing and returns an
+// empty result. Like Register, a newly registered build gets a
+// generated php.ini when its folder has none.
+func (m *PHPManager) Scan(ctx context.Context) (AutoRegisterResult, error) {
+	res := AutoRegisterResult{Root: m.ScanRoot}
+	if strings.TrimSpace(m.ScanRoot) == "" {
+		return res, nil
+	}
+	reg, err := m.Registry.Load()
+	if err != nil {
+		return res, err
+	}
+	names, err := m.Files.ListNames(m.ScanRoot)
+	if err != nil {
+		return res, err
+	}
+	for _, name := range names {
+		dir := joinPath(m.ScanRoot, name)
+		if !m.Files.IsDir(dir) {
+			continue // plain files in the php folder are not builds
+		}
+		registered := false
+		for _, v := range reg.PHPVersions {
+			if samePath(v.Path, dir) {
+				registered = true
+				break
+			}
+		}
+		if registered {
+			continue
+		}
+		r, err := m.Register(ctx, dir)
+		if err != nil {
+			reason := err.Error()
+			if errors.Is(err, ErrPHPVersionExists) {
+				reason = "versi sudah terdaftar dari folder lain"
+			}
+			res.Skipped = append(res.Skipped, AutoRegisterSkip{Path: dir, Reason: reason})
+			continue
+		}
+		res.Registered = append(res.Registered, r.Version.Version)
+	}
+	return res, nil
 }
 
 // Remove unregisters a PHP version (refused while in use — enforced
