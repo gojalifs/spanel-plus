@@ -99,12 +99,37 @@ func PruneProcessLogs(logDir, project, name string, keepDays int) {
 	}
 }
 
+// TailReader is optionally implemented by a FileStore that can read a
+// file's tail without loading the whole file (the production OS
+// store). TailLog prefers it when maxBytes > 0; stores without it
+// (test fakes) fall back to ReadFile — correct, just unbounded for
+// huge files. Keeping this optional, rather than a FileStore method,
+// avoids widening the apply pipeline's store interface for a log-view
+// need.
+type TailReader interface {
+	// ReadTail returns at most the last maxBytes of the file
+	// (maxBytes <= 0 reads the whole file). Error when missing.
+	ReadTail(path string, maxBytes int) ([]byte, error)
+}
+
 // TailLog returns the last maxLines lines of a log file (reading at
 // most the last maxBytes so a runaway log cannot exhaust memory).
+// When the store implements TailReader, only the tail bytes are read
+// from disk; otherwise the whole file is read and trimmed, as before.
 // A missing log is an empty result, not an error — the process may
 // simply not have run yet.
 func TailLog(files FileStore, path string, maxLines, maxBytes int) (string, error) {
-	raw, err := files.ReadFile(path)
+	var raw []byte
+	var err error
+	if maxBytes > 0 {
+		if tr, ok := files.(TailReader); ok {
+			raw, err = tr.ReadTail(path, maxBytes)
+		} else {
+			raw, err = files.ReadFile(path)
+		}
+	} else {
+		raw, err = files.ReadFile(path)
+	}
 	if err != nil {
 		return "", nil
 	}

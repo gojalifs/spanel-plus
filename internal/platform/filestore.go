@@ -2,6 +2,7 @@ package platform
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -31,6 +32,32 @@ func (OSFileStore) EnsureWritableDir(dir string) error {
 // ReadFile reads a whole file.
 func (OSFileStore) ReadFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
+}
+
+// ReadTail returns at most the last maxBytes of the file, seeking from
+// the end instead of loading the whole file — so tailing a runaway
+// process log cannot exhaust the panel's memory. maxBytes <= 0 reads
+// the whole file (same as ReadFile). A file that grows between Stat
+// and Read may yield slightly more than maxBytes; callers trim.
+func (OSFileStore) ReadTail(path string, maxBytes int) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if maxBytes <= 0 {
+		return io.ReadAll(f)
+	}
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if st.Size() > int64(maxBytes) {
+		if _, err := f.Seek(-int64(maxBytes), io.SeekEnd); err != nil {
+			return nil, err
+		}
+	}
+	return io.ReadAll(f)
 }
 
 // WriteFile writes a whole file, creating parent directories.
@@ -104,3 +131,4 @@ func (OSFileStore) ListNames(dir string) ([]string, error) {
 }
 
 var _ core.FileStore = OSFileStore{}
+var _ core.TailReader = OSFileStore{}
