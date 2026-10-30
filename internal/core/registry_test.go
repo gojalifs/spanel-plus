@@ -54,6 +54,10 @@ func TestRegistryValidateStructureRejections(t *testing.T) {
 		{"empty fs path", func(r *Registry) { r.Projects[0].FSPath = "" }, "fs_path"},
 		{"unknown type", func(r *Registry) { r.Projects[0].Type = "wordpress" }, "unknown type"},
 		{"laravel without public", func(r *Registry) { r.Projects[0].PublicSubdir = "" }, "public_subdir"},
+		{"ci4 without public", func(r *Registry) {
+			r.Projects[0].Type = ProjectCI4
+			r.Projects[0].PublicSubdir = ""
+		}, "public_subdir"},
 		{"native with public", func(r *Registry) {
 			r.Projects[0].Type = ProjectPHPNative
 		}, "must not set public_subdir"},

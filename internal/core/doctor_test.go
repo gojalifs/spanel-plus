@@ -196,3 +196,32 @@ func TestDoctorPortBusyAndDataDirUnwritableFail(t *testing.T) {
 		t.Fatal("unwritable data dir must be unhealthy")
 	}
 }
+
+func TestDoctorCI4ProjectChecks(t *testing.T) {
+	proj := Project{Name: "ci", URLPath: "/ci", FSPath: `C:\htdocs\ci`, Type: ProjectCI4, PublicSubdir: "public"}
+	reg := &Registry{Projects: []Project{proj}}
+
+	// Folder + public present, but no writable/ -> warn.
+	d := Doctor{Files: fakeFiles{dirs: map[string]bool{`C:\htdocs\ci`: true, `C:\htdocs\ci/public`: true}}}
+	checks := d.checkProjects(reg)
+	if len(checks) != 1 || checks[0].Status != StatusWarn || !strings.Contains(checks[0].Detail, "writable") {
+		t.Errorf("missing writable must warn, got %v", checks)
+	}
+
+	// writable present, .env missing -> warn .env.
+	d.Files = fakeFiles{dirs: map[string]bool{`C:\htdocs\ci`: true, `C:\htdocs\ci/public`: true, `C:\htdocs\ci/writable`: true}}
+	checks = d.checkProjects(reg)
+	if len(checks) != 1 || checks[0].Status != StatusWarn || !strings.Contains(checks[0].Detail, ".env") {
+		t.Errorf("missing .env must warn, got %v", checks)
+	}
+
+	// All present -> pass.
+	d.Files = fakeFiles{
+		dirs:  map[string]bool{`C:\htdocs\ci`: true, `C:\htdocs\ci/public`: true, `C:\htdocs\ci/writable`: true},
+		files: map[string]bool{`C:\htdocs\ci/.env`: true},
+	}
+	checks = d.checkProjects(reg)
+	if len(checks) != 1 || checks[0].Status != StatusPass {
+		t.Errorf("complete ci4 project must pass, got %v", checks)
+	}
+}

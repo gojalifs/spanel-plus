@@ -299,21 +299,38 @@ func (d Doctor) checkProjects(reg *Registry) []Check {
 				fmt.Sprintf("project %s folder %s is not a directory", p.Name, p.FSPath)})
 			continue
 		}
-		if p.Type == ProjectLaravel {
+		if p.Type == ProjectLaravel || p.Type == ProjectCI4 {
 			if !d.Files.IsDir(p.TargetDir()) {
 				checks = append(checks, Check{name, StatusFail,
-					fmt.Sprintf("laravel project %s public dir %s does not exist", p.Name, p.TargetDir())})
+					fmt.Sprintf("%s project %s public dir %s does not exist", p.Type, p.Name, p.TargetDir())})
 				continue
 			}
-			if !d.Files.IsDir(joinPath(p.FSPath, "storage")) {
-				checks = append(checks, Check{name, StatusWarn,
-					fmt.Sprintf("laravel project %s has no storage/ folder — Apache's service account may fail to write cache/logs", p.Name)})
-				continue
-			}
-			if !d.Files.Exists(joinPath(p.FSPath, ".env")) {
-				checks = append(checks, Check{name, StatusWarn,
-					fmt.Sprintf("laravel project %s has no .env file — the app may boot with wrong settings", p.Name)})
-				continue
+			if p.Type == ProjectLaravel {
+				if !d.Files.IsDir(joinPath(p.FSPath, "storage")) {
+					checks = append(checks, Check{name, StatusWarn,
+						fmt.Sprintf("laravel project %s has no storage/ folder — Apache's service account may fail to write cache/logs", p.Name)})
+					continue
+				}
+				if !d.Files.Exists(joinPath(p.FSPath, ".env")) {
+					checks = append(checks, Check{name, StatusWarn,
+						fmt.Sprintf("laravel project %s has no .env file — the app may boot with wrong settings", p.Name)})
+					continue
+				}
+			} else {
+				// CodeIgniter 4 keeps its runtime files under
+				// writable/ (logs, cache, sessions, uploads) and
+				// its settings in .env, mirroring Laravel's
+				// storage/ + .env checks above.
+				if !d.Files.IsDir(joinPath(p.FSPath, "writable")) {
+					checks = append(checks, Check{name, StatusWarn,
+						fmt.Sprintf("ci4 project %s has no writable/ folder — CodeIgniter needs it for logs, cache and sessions", p.Name)})
+					continue
+				}
+				if !d.Files.Exists(joinPath(p.FSPath, ".env")) {
+					checks = append(checks, Check{name, StatusWarn,
+						fmt.Sprintf("ci4 project %s has no .env file — the app may boot with wrong settings", p.Name)})
+					continue
+				}
 			}
 		}
 		checks = append(checks, Check{name, StatusPass, fmt.Sprintf("project %s folder present at %s", p.Name, p.FSPath)})

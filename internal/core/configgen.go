@@ -97,7 +97,7 @@ func generateProject(documentRoot string, p Project, php PHPVersion) string {
 // needsAlias reports whether url_path -> target needs an explicit
 // Alias, i.e. the target is not exactly DocumentRoot+url_path.
 func needsAlias(documentRoot string, p Project, targetSlash string) bool {
-	if p.Type == ProjectLaravel {
+	if p.Type == ProjectLaravel || p.Type == ProjectCI4 {
 		return true
 	}
 	if documentRoot == "" {

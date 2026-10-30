@@ -474,6 +474,25 @@ func TestAddProjectAndSetEnabled(t *testing.T) {
 	}
 }
 
+func TestAddProjectCI4DefaultsPublic(t *testing.T) {
+	rig := newManagerRig(t)
+	store := fsRegistryStore{fs: rig.fs, path: rig.regPath}
+	regSvc := &RegistryService{Store: store, Files: fullEnvForManager(), Clock: &tickClock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}}
+	projects := &ProjectService{Registry: regSvc, Manager: rig.mgr}
+
+	newProj := Project{Name: "ci4app", URLPath: "/ci4app", FSPath: `C:\htdocs\web-app`, Type: ProjectCI4, PHPVersion: "8.2", Enabled: true}
+	if _, err := projects.AddProject(context.Background(), newProj); err != nil {
+		t.Fatalf("AddProject ci4: %v", err)
+	}
+	conf, err := rig.fs.ReadFile(filepath.Join(rig.genDir, "ci4app.conf"))
+	if err != nil {
+		t.Fatalf("ci4 project config must be generated: %v", err)
+	}
+	if !strings.Contains(string(conf), `Alias "/ci4app"`) || !strings.Contains(string(conf), "public") {
+		t.Errorf("ci4 project must Alias to public, got:\n%s", conf)
+	}
+}
+
 func TestProjectServicePHPPassthrough(t *testing.T) {
 	rig := newManagerRig(t)
 	regSvc := &RegistryService{Store: fsRegistryStore{fs: rig.fs, path: rig.regPath}, Files: fullEnvForManager(), Clock: &tickClock{}}

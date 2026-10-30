@@ -93,7 +93,7 @@ Commands:
   admin set-password    Buat/ganti password admin — perintah lokal, pertama kali sebelum login
   admin hash-password   Cetak hash bcrypt untuk ditempel ke ad_dummy_users di panel.json
   project list          Daftar proyek di registry
-  project add --name N --url /path --path C:\folder --type laravel|php-native|static --php 8.2 [--public public] [--disabled]
+  project add --name N --url /path --path C:\folder --type laravel|ci4|php-native|static --php 8.2 [--public public] [--disabled]
   project update N [flags seperti add]   Ubah proyek (flag yang tidak disebut memakai nilai lama)
   project set-php N V   Ganti versi PHP proyek lewat pipa apply (backup -> httpd -t -> restart -> health check -> rollback bila gagal)
   project enable N      Aktifkan proyek (apply)

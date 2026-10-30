@@ -86,6 +86,28 @@ func TestProjectWarnings(t *testing.T) {
 	if len(w) != 1 || w[0].Code != "app_url_missing" {
 		t.Errorf("missing .env must warn app_url_missing, got %v", w)
 	}
+
+	// CodeIgniter 4: app.baseURL with /public suffix -> mismatch;
+	// matching baseURL -> clean; missing .env -> base_url_missing.
+	ci4 := Project{Name: "ci", URLPath: "/ci", FSPath: `C:\htdocs\ci`, Type: ProjectCI4, PublicSubdir: "public"}
+	_ = fs.WriteFile(`C:\htdocs\ci/.env`, []byte("app.baseURL = 'http://192.168.1.10/ci/public'\n"))
+	w = ProjectWarnings(fs, ci4)
+	codes = map[string]bool{}
+	for _, x := range w {
+		codes[x.Code] = true
+	}
+	if !codes["base_url_mismatch"] {
+		t.Errorf("expected base_url_mismatch, got %v", w)
+	}
+	_ = fs.WriteFile(`C:\htdocs\ci/.env`, []byte("app.baseURL = 'http://192.168.1.10/ci'\n"))
+	if w := ProjectWarnings(fs, ci4); len(w) != 0 {
+		t.Errorf("clean ci4 project must have no warnings, got %v", w)
+	}
+	fs3 := newMemFS()
+	w = ProjectWarnings(fs3, ci4)
+	if len(w) != 1 || w[0].Code != "base_url_missing" {
+		t.Errorf("missing .env must warn base_url_missing, got %v", w)
+	}
 }
 
 // fakeProber returns a canned probe result.

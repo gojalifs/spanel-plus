@@ -38,6 +38,7 @@ type ProjectType string
 
 const (
 	ProjectLaravel   ProjectType = "laravel"
+	ProjectCI4       ProjectType = "ci4"
 	ProjectPHPNative ProjectType = "php-native"
 	ProjectStatic    ProjectType = "static"
 )
@@ -203,9 +204,9 @@ func validateProjectStructure(p Project, phpSeen map[string]bool) error {
 		return fmt.Errorf("registry: project %s has an empty fs_path", p.Name)
 	}
 	switch p.Type {
-	case ProjectLaravel:
+	case ProjectLaravel, ProjectCI4:
 		if p.PublicSubdir == "" {
-			return fmt.Errorf("registry: laravel project %s must set public_subdir (usually \"public\")", p.Name)
+			return fmt.Errorf("registry: %s project %s must set public_subdir (usually \"public\")", p.Type, p.Name)
 		}
 	case ProjectPHPNative:
 		if p.PublicSubdir != "" {
@@ -271,8 +272,8 @@ func (r Registry) ValidateEnvironment(files FileProbe) error {
 		if !files.IsDir(p.FSPath) {
 			return fmt.Errorf("registry: project %s fs_path %s is not a directory", p.Name, p.FSPath)
 		}
-		if p.Type == ProjectLaravel && !files.IsDir(p.TargetDir()) {
-			return fmt.Errorf("registry: laravel project %s public dir %s does not exist", p.Name, p.TargetDir())
+		if (p.Type == ProjectLaravel || p.Type == ProjectCI4) && !files.IsDir(p.TargetDir()) {
+			return fmt.Errorf("registry: %s project %s public dir %s does not exist", p.Type, p.Name, p.TargetDir())
 		}
 	}
 	return nil

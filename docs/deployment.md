@@ -217,9 +217,13 @@ tidak hilang, hanya perlu login ulang.
   (`pdo` ikut aktif otomatis sebagai dependensinya).
 - **Proyek**: tambahkan lewat dashboard (nama proyek = segmen
   path URL, mis. proyek `app-laravel` dilayani di
-  `http://<server>/app-laravel`). Laravel di-`Alias` ke folder
-  `public/`-nya; proyek native/statis memakai foldernya
-  langsung. Panel menulis config generated ke
+  `http://<server>/app-laravel`). Laravel dan CodeIgniter 4
+  di-`Alias` ke folder `public/`-nya; proyek native/statis memakai foldernya
+  langsung. Untuk CI4, panel memeriksa folder `writable/` dan
+  `app.baseURL` di `.env` (pola peringatan yang sama dengan
+  `APP_URL` Laravel); scheduler Laravel (`artisan schedule:run`)
+  tidak berlaku untuk CI4 — proses terjadwal CI4 didaftarkan
+  sebagai proses CLI biasa bila perlu. Panel menulis config generated ke
   `<data_dir>/generated/apache/*.conf`, lalu menjalankan
   pipeline apply: snapshot → tulis config → `httpd -t` →
   restart Apache → health-check → commit registry. Gagal di

@@ -19,6 +19,7 @@ func goldenFixture() Registry {
 		},
 		Projects: []Project{
 			{Name: "app-laravel", URLPath: "/app-laravel", FSPath: `C:\m0\htdocs\app-laravel`, Type: ProjectLaravel, PublicSubdir: "public", PHPVersion: "8.2", Enabled: true},
+			{Name: "app-ci4", URLPath: "/app-ci4", FSPath: `C:\m0\htdocs\app-ci4`, Type: ProjectCI4, PublicSubdir: "public", PHPVersion: "8.2", Enabled: true},
 			{Name: "app-php82", URLPath: "/app-php82", FSPath: `C:\m0\htdocs\app-php82`, Type: ProjectPHPNative, PHPVersion: "8.2", Enabled: true},
 			{Name: "alat", URLPath: "/alat", FSPath: `D:\apps\alat`, Type: ProjectPHPNative, PHPVersion: "8.3", Enabled: true},
 			{Name: "dokumen", URLPath: "/dokumen", FSPath: `C:\m0\htdocs\dokumen`, Type: ProjectStatic, PublicSubdir: "dist", Enabled: true},

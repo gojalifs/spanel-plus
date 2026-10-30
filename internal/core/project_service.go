@@ -43,7 +43,7 @@ func (s *ProjectService) AddProject(ctx context.Context, p Project) (ApplyResult
 	}
 	now := s.Registry.now()
 	p.CreatedAt, p.UpdatedAt = now, now
-	if p.Type == ProjectLaravel && p.PublicSubdir == "" {
+	if (p.Type == ProjectLaravel || p.Type == ProjectCI4) && p.PublicSubdir == "" {
 		p.PublicSubdir = "public"
 	}
 	candidate := reg.Clone()
@@ -132,7 +132,7 @@ func (s *ProjectService) UpdateProject(ctx context.Context, name string, upd Pro
 	if upd.CLIProcesses == nil {
 		upd.CLIProcesses = old.CLIProcesses
 	}
-	if upd.Type == ProjectLaravel && upd.PublicSubdir == "" {
+	if (upd.Type == ProjectLaravel || upd.Type == ProjectCI4) && upd.PublicSubdir == "" {
 		upd.PublicSubdir = "public"
 	}
 	candidate.Projects[idx] = upd
