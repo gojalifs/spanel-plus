@@ -240,6 +240,15 @@ tidak hilang, hanya perlu login ulang.
   `SPanelPlus` supaya deteksi port ikut berubah; mengubah port
   tanpa restart panel membuat health-check dan link dashboard
   masih mengarah ke port lama.
+- **Health-check memakai User-Agent Edge modern.** Sebagian
+  aplikasi (mis. EMC) menolak klien non-browser dengan 426
+  lewat gate versi browser di halaman login — health-check
+  ber-User-Agent Go mentah selalu ditolak gate itu walau
+  aplikasi hidup untuk user sungguhan. Health-check panel
+  karena itu mengidentifikasi diri sebagai Edge 140; error
+  beneran (500, DB mati, refused, timeout) tetap menggagalkan
+  health-check seperti biasa. Naikkan versi UA ini bila
+  aplikasi yang di-gate menaikkan minimumnya di atas 140.
 - **Dummy smoke test bukan bagian produksi.** Folder dummy
   (`app-php82`, `app-php83`, `app-laravel`) dan config M0-nya
   hanya untuk smoke test. Sebelum go-live: hapus folder dummy
