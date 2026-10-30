@@ -811,7 +811,9 @@ Info "Apache version: $(($v.Out -split "`n" | Select-Object -First 1))"
 # --- 9. Service Apache (apache-spanel) ---------------------------------------------------
 # Migrasi dari nama lama: service Apache2.4 peninggalan setup lama HANYA
 # dihapus bila binary-nya dari $M0Dir. Service Apache2.4 milik aplikasi
-# lain TIDAK disentuh - fail keras.
+# lain DIBIARKAN JALAN (skip + warning keras): panel hanya memegang
+# service-nya sendiri, dan konflik port beneran tetap digagalkan
+# pengecekan akhir (service gagal Running sesudah start).
 $oldSvc = Get-Service -Name "Apache2.4" -ErrorAction SilentlyContinue
 if ($null -ne $oldSvc) {
     $old = Get-CimInstance Win32_Service -Filter "Name='Apache2.4'"
@@ -821,7 +823,7 @@ if ($null -ne $oldSvc) {
         $r = Invoke-Native $httpd @("-k", "uninstall", "-n", "Apache2.4")
         Write-Host $r.All
     } else {
-        Fail "Service Apache2.4 sudah ada tapi bukan dari $M0Dir (milik XAMPP/aplikasi lain?). Stop/uninstall service itu dulu."
+        Warn "Service Apache2.4 ditemukan tapi bukan dari $M0Dir (milik XAMPP/aplikasi lain?) - DIBIARKAN JALAN, tidak disentuh. Path: $($old.PathName). Pastikan port-nya tidak bentrok dengan port Apache panel ($apachePort); bila $apacheService gagal start karena port dipakai, deploy gagal di pengecekan akhir."
     }
 }
 $existing = Get-Service -Name $apacheService -ErrorAction SilentlyContinue
