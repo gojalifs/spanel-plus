@@ -171,6 +171,31 @@ console saja) dan definisi proyek/PHP (disimpan di
 
 ## 4. Login produksi: AD sungguhan + akun panel break-glass
 
+Nilai-nilai AD tidak perlu ditebak atau diminta satu per satu:
+`scripts/discover-ad.ps1` membacanya dari mesin Windows yang join
+domain (ADSI, kredensial user yang menjalankan — tanpa password):
+
+```
+.\discover-ad.ps1 -GroupName IS
+```
+
+Script itu mencetak satu baris JSON (`ad_server`, `ad_domain`,
+`ad_base_dn`, `ad_group_dn`, `ad_ca_file`) yang bisa ditempel ke
+`panel.json`, atau ditulis langsung dengan
+`-PanelJson C:\Panel\panel.json` (backup `.bak-discover-*` dulu,
+hapus `ad_dummy_users`, paksa `ad_allow_insecure_ldap=false`). Dengan
+`-CaFile C:\Panel\dc-ca.crt`, script mengekspor sertifikat CA
+penerbit sertifikat LDAPS DC dalam format PEM (yang dibaca panel;
+bukan DER). Satu-satunya input yang tidak bisa ditebak adalah nama
+grup (`-GroupName`, default `IS`); bila grup tidak ditemukan atau
+ambigu, script gagal dengan pesan jelas. Deploy script juga bisa
+memakai discovery ini: `.\deploy-panel-production.ps1 -AdDiscover`
+mengisi parameter AD yang masih kosong dari hasil discovery
+(parameter eksplisit selalu menang; gagal discovery = gagal deploy,
+bukan diam-diam jatuh ke admin-only). Prasyarat: mesin yang
+menjalankan discovery harus join domain; bila server tidak join
+domain, jalankan discovery di PC yang join domain lalu isi manual.
+
 1. Isi field AD di `panel.json` sesuai tabel §3, hapus
    `ad_dummy_users`, pastikan `ad_server` bukan `"dummy"`.
 2. Restart `SPanelPlus`.

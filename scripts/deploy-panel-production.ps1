@@ -116,6 +116,19 @@
     Aturan fallback sama.
 .PARAMETER AdCaFile
     File CA DC (opsional; kosong = percaya system roots).
+.PARAMETER AdDiscover
+    Isi parameter AD yang masih kosong dari hasil discover-ad.ps1
+    (ADSI, kredensial user yang menjalankan; script itu harus
+    sebelahan dengan deploy script ini). Parameter eksplisit selalu
+    menang; discovery tidak pernah menimpa nilai manual. Gagal
+    discovery = gagal deploy (fail-fast), bukan diam-diam jatuh ke
+    admin-only. Prasyarat: mesin ini join domain (atau jalankan
+    discover-ad.ps1 di PC yang join domain lalu isi manual).
+    CA DC di-export ke <PanelDir>\dc-ca.crt bila ditemukan; bila
+    tidak ditemukan, ad_ca_file dikosongkan (system roots) + peringatan.
+.PARAMETER AdDiscoverGroup
+    Nama grup IT untuk -AdDiscover (default "IS"). Bila grup tidak
+    ditemukan atau ambigu, discovery gagal dengan pesan jelas.
 .PARAMETER PanelAllowSubnet
     Subnet yang boleh mengakses port panel (mis. 192.168.89.0/24).
     Kosong = firewall tidak diubah, hanya peringatan.
@@ -135,6 +148,9 @@
         -AdDomain siws.local -AdBaseDn "DC=siws,DC=local" `
         -AdGroupDn "CN=IS,DC=siws,DC=local" `
         -RemoveDummies -PanelAllowSubnet 192.168.89.0/24
+.EXAMPLE
+    # Produksi AD dengan discovery otomatis (grup IT "IS"):
+    .\deploy-panel-production.ps1 -AdDiscover -RemoveDummies
 #>
 
 [CmdletBinding()]
@@ -148,6 +164,8 @@ param(
     [string]$AdBaseDn = "",
     [string]$AdGroupDn = "",
     [string]$AdCaFile = "",
+    [switch]$AdDiscover,
+    [string]$AdDiscoverGroup = "IS",
     [string]$PanelAllowSubnet = "",
     [switch]$RemoveDummies,
     [switch]$SkipProjectChecks,
@@ -491,6 +509,45 @@ foreach ($branch in @("8.2", "8.3", "8.4")) {
 $m0IncludePresent = $false
 if (Test-Path $httpdConf) {
     $m0IncludePresent = ([System.IO.File]::ReadAllText($httpdConf) -match 'conf-m0-projects\.conf')
+}
+
+# --- 1b. AD discovery (opsional) -------------------------------------------
+# -AdDiscover mengisi parameter AD yang masih kosong dari hasil
+# discover-ad.ps1 (ADSI, kredensial user yang menjalankan). Parameter
+# eksplisit selalu menang; discovery tidak pernah menimpa nilai yang
+# sudah diisi manual. Gagal discovery = gagal deploy (fail-fast), bukan
+# diam-diam jatuh ke admin-only. Blok ini jalan SEBELUM penentuan mode
+# di bawah, jadi nilai hasil discovery ikut validasi + rencana yang sama.
+if ($AdDiscover) {
+    $discScript = Join-Path $PSScriptRoot "discover-ad.ps1"
+    if (-not (Test-Path $discScript)) {
+        Fail "discover-ad.ps1 tidak ditemukan di folder script ($PSScriptRoot). Script itu harus sebelahan dengan deploy script ini."
+    }
+    $discCaFile = Join-Path $PanelDir "dc-ca.crt"
+    $discOut = $null
+    try {
+        $discOut = & $discScript -GroupName $AdDiscoverGroup -CaFile $discCaFile
+    } catch {
+        Fail "AD discovery gagal: $($_.Exception.Message)"
+    }
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace("$discOut")) {
+        Fail "AD discovery gagal (tidak ada output JSON). Jalankan manual: .\discover-ad.ps1 -GroupName $AdDiscoverGroup"
+    }
+    try {
+        $disc = ($discOut -join "`n") | ConvertFrom-Json
+    } catch {
+        Fail "Output discovery bukan JSON valid: $($_.Exception.Message)"
+    }
+    if ([string]::IsNullOrWhiteSpace($AdServer)) { $AdServer = $disc.ad_server }
+    if ([string]::IsNullOrWhiteSpace($AdDomain)) { $AdDomain = $disc.ad_domain }
+    if ([string]::IsNullOrWhiteSpace($AdBaseDn)) { $AdBaseDn = $disc.ad_base_dn }
+    if ([string]::IsNullOrWhiteSpace($AdGroupDn)) { $AdGroupDn = $disc.ad_group_dn }
+    if ([string]::IsNullOrWhiteSpace($AdCaFile) -and -not [string]::IsNullOrWhiteSpace($disc.ad_ca_file) -and (Test-Path $disc.ad_ca_file)) {
+        $AdCaFile = $disc.ad_ca_file
+    } elseif ([string]::IsNullOrWhiteSpace($AdCaFile)) {
+        Warn "CA DC tidak berhasil di-export oleh discovery; ad_ca_file dikosongkan (panel memakai system roots). Bila login AD gagal validasi sertifikat, isi -AdCaFile manual."
+    }
+    Info "AD discovery: server=$AdServer domain=$AdDomain grup=$AdGroupDn"
 }
 
 # --- 2. Tentukan mode AD -------------------------------------------------------
