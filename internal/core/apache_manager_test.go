@@ -175,16 +175,6 @@ func (f *fakeServiceCtl) Restart(string) error {
 }
 func (f *fakeServiceCtl) Status(string) (string, error) { return "running", nil }
 
-type fakeHealth struct {
-	ok    bool
-	calls []string
-}
-
-func (f *fakeHealth) Check(url string) HealthResult {
-	f.calls = append(f.calls, url)
-	return HealthResult{OK: f.ok}
-}
-
 type tickClock struct{ t time.Time }
 
 func (c *tickClock) Now() time.Time {
@@ -206,7 +196,6 @@ type managerRig struct {
 	mgr     *ApacheManager
 	fs      *memFS
 	svc     *fakeServiceCtl
-	health  *fakeHealth
 	runner  *fakeRunner
 	oldReg  Registry
 	regPath string
@@ -236,27 +225,24 @@ func newManagerRig(t *testing.T) *managerRig {
 		}
 	}
 	svc := &fakeServiceCtl{}
-	health := &fakeHealth{ok: true}
 	runner := &fakeRunner{out: "Syntax OK"}
 	mgr := &ApacheManager{
-		Runner: runner, Files: fs, Service: svc, Health: health,
+		Runner: runner, Files: fs, Service: svc,
 		Clock: &tickClock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)},
-		Sleep: func(time.Duration) {},
 		Cfg: ApplyConfig{
 			ApacheHome: `C:\apache`, ApacheService: "Apache2.4",
 			RegistryPath: regPath, GeneratedDir: genDir,
-			BackupsDir:    filepath.Join("data", "backups"),
-			HealthBaseURL: "http://127.0.0.1", Retention: 20,
-			HealthAttempts: 2, HealthInterval: time.Millisecond,
+			BackupsDir: filepath.Join("data", "backups"),
+			Retention:  20,
 		},
 	}
-	return &managerRig{mgr: mgr, fs: fs, svc: svc, health: health, runner: runner, oldReg: old, regPath: regPath, genDir: genDir}
+	return &managerRig{mgr: mgr, fs: fs, svc: svc, runner: runner, oldReg: old, regPath: regPath, genDir: genDir}
 }
 
 func TestApplySuccessCommitsEverything(t *testing.T) {
 	rig := newManagerRig(t)
 	candidate := baseRegistry("8.3")
-	res, err := rig.mgr.Apply(context.Background(), candidate, []string{"/web-app"})
+	res, err := rig.mgr.Apply(context.Background(), candidate)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -281,9 +267,6 @@ func TestApplySuccessCommitsEverything(t *testing.T) {
 	if rig.svc.restarts != 1 {
 		t.Errorf("success path restarts Apache exactly once, got %d", rig.svc.restarts)
 	}
-	if len(rig.health.calls) != 1 || rig.health.calls[0] != "http://127.0.0.1/web-app" {
-		t.Errorf("health must check the changed project once, got %v", rig.health.calls)
-	}
 }
 
 func TestApplyHTTPdTestFailureRollsBack(t *testing.T) {
@@ -291,7 +274,7 @@ func TestApplyHTTPdTestFailureRollsBack(t *testing.T) {
 	rig.runner.err = errors.New("exit status 1")
 	rig.runner.out = "Syntax error on line 1"
 	before, _ := rig.fs.ReadFile(filepath.Join(rig.genDir, "web-app.conf"))
-	_, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3"), []string{"/web-app"})
+	_, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3"))
 	if err == nil || !strings.Contains(err.Error(), "httpd -t") || !strings.Contains(err.Error(), "rolled back") {
 		t.Fatalf("expected loud rolled-back httpd -t error, got %v", err)
 	}
@@ -308,26 +291,10 @@ func TestApplyHTTPdTestFailureRollsBack(t *testing.T) {
 	}
 }
 
-func TestApplyHealthFailureRollsBack(t *testing.T) {
-	rig := newManagerRig(t)
-	rig.health.ok = false
-	_, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3"), []string{"/web-app"})
-	if err == nil || !strings.Contains(err.Error(), "health check") {
-		t.Fatalf("expected health check failure, got %v", err)
-	}
-	raw, _ := rig.fs.ReadFile(rig.regPath)
-	if !strings.Contains(string(raw), `"php_version": "8.2"`) {
-		t.Error("registry must stay on 8.2 after health-check rollback")
-	}
-	if rig.svc.restarts != 2 {
-		t.Errorf("expected apply restart + rollback restart, got %d", rig.svc.restarts)
-	}
-}
-
 func TestApplyRestartFailureRollsBack(t *testing.T) {
 	rig := newManagerRig(t)
 	rig.svc.failFirst = 1 // apply's restart fails; rollback's succeeds
-	_, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3"), []string{"/web-app"})
+	_, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3"))
 	if err == nil || !strings.Contains(err.Error(), "restart apache") {
 		t.Fatalf("expected restart failure, got %v", err)
 	}
@@ -345,7 +312,7 @@ func TestApplyPrunesOldSnapshots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3"), nil); err != nil {
+	if _, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3")); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	names, err := rig.fs.ListNames(rig.mgr.Cfg.BackupsDir)
@@ -402,7 +369,7 @@ func TestApplyRemovesStaleConfigs(t *testing.T) {
 	if err := rig.fs.WriteFile(stale, []byte("old")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3"), nil); err != nil {
+	if _, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3")); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	if rig.fs.Exists(stale) {
@@ -430,7 +397,7 @@ func TestApplyRollbackFailureIsLoud(t *testing.T) {
 	rig.mgr.Files = afs
 	// Seeding is done; from here generated writes fail, so apply fails
 	// at write stage and the rollback write fails too.
-	_, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3"), nil)
+	_, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3"))
 	if err == nil || !strings.Contains(err.Error(), "ROLLBACK FAILED") {
 		t.Fatalf("expected a loud ROLLBACK FAILED error, got %v", err)
 	}
@@ -457,16 +424,12 @@ func TestAddProjectAndSetEnabled(t *testing.T) {
 		t.Fatal("duplicate AddProject must be refused")
 	}
 
-	// Disabling removes its config and needs no health check.
-	rig.health.calls = nil
+	// Disabling removes its config.
 	if _, err := projects.SetEnabled(context.Background(), "alat", false); err != nil {
 		t.Fatalf("SetEnabled(false): %v", err)
 	}
 	if rig.fs.Exists(filepath.Join(rig.genDir, "alat.conf")) {
 		t.Error("disabled project's config must be removed")
-	}
-	if len(rig.health.calls) != 0 {
-		t.Errorf("disabling must not health-check, got %v", rig.health.calls)
 	}
 	if _, err := projects.SetEnabled(context.Background(), "hantu", true); err == nil {
 		t.Fatal("SetEnabled on unknown project must be refused")
@@ -530,14 +493,12 @@ func fullEnvForManager() envFiles {
 	return envFiles{dirs: dirs, files: files}
 }
 
-func TestApplyLogsStagesAndHealthAttempts(t *testing.T) {
+func TestApplyLogsStagesOnSuccess(t *testing.T) {
 	rig := newManagerRig(t)
-	rig.health.ok = false
 	var buf bytes.Buffer
 	rig.mgr.Log = slog.New(slog.NewJSONHandler(&buf, nil))
-	_, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3"), []string{"/web-app"})
-	if err == nil {
-		t.Fatal("expected health check failure")
+	if _, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3")); err != nil {
+		t.Fatalf("Apply: %v", err)
 	}
 	log := buf.String()
 	for _, want := range []string{
@@ -546,18 +507,14 @@ func TestApplyLogsStagesAndHealthAttempts(t *testing.T) {
 		`"msg":"apply generated config written"`,
 		`"msg":"apply httpd -t ok"`,
 		`"msg":"apply apache restarted"`,
-		`"msg":"health check attempt failed"`,
-		`"attempt":1`,
-		`"attempt":2`,
-		`"msg":"apply failed, rolled back"`,
-		`"stage":"health check /web-app"`,
+		`"msg":"apply committed"`,
 	} {
 		if !strings.Contains(log, want) {
 			t.Errorf("activity log must contain %s, got:\n%s", want, log)
 		}
 	}
-	if !strings.Contains(err.Error(), "did not answer acceptably after 2 attempts") {
-		t.Errorf("final error must carry the attempt budget, got %v", err)
+	if strings.Contains(log, "health check") {
+		t.Errorf("activity log must not mention health checks anymore, got:\n%s", log)
 	}
 }
 
@@ -565,7 +522,7 @@ func TestApplyLogsCommitOnSuccess(t *testing.T) {
 	rig := newManagerRig(t)
 	var buf bytes.Buffer
 	rig.mgr.Log = slog.New(slog.NewJSONHandler(&buf, nil))
-	if _, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3"), []string{"/web-app"}); err != nil {
+	if _, err := rig.mgr.Apply(context.Background(), baseRegistry("8.3")); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	if !strings.Contains(buf.String(), `"msg":"apply committed"`) {

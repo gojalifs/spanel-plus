@@ -1,14 +1,48 @@
 package platform
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"time"
-
-	"github.com/gojalifs/spanel-plus/internal/core"
 )
 
-// HTTPHealthChecker is the production core.HealthChecker: a URL is
+// HealthResult is one probe's outcome. Status is the HTTP status when
+// the server answered (0 otherwise); Err is the transport error when
+// the server did not answer at all.
+//
+// NOTE (2026-11-02): this prober is no longer wired into the apply
+// pipeline — applies never gate on app responses (operator decision:
+// the gate kept failing on application-side refusals that are not
+// config errors, e.g. a browser-version gate answering 426 or a team's
+// auth filter answering 403, and rolled back correct configs). The
+// prober stays as a tested standalone utility for future manual
+// diagnostics (e.g. a per-project health path); it is not dead code
+// with a caller to come, it is a tool with its tests still green.
+type HealthResult struct {
+	OK     bool
+	Status int
+	Err    error
+}
+
+// Describe renders the failure detail for logs and error messages:
+// "status 404", the transport error, or "no response".
+func (r HealthResult) Describe() string {
+	if r.Status != 0 {
+		return fmt.Sprintf("status %d", r.Status)
+	}
+	if r.Err != nil {
+		return r.Err.Error()
+	}
+	return "no response"
+}
+
+// HealthChecker probes one URL and reports the outcome in detail.
+type HealthChecker interface {
+	Check(url string) HealthResult
+}
+
+// HTTPHealthChecker is the production HealthChecker: a URL is
 // healthy when it answers with a status below 400 (redirects are
 // followed — a Laravel app redirecting to its login page is alive).
 type HTTPHealthChecker struct {
@@ -28,7 +62,7 @@ const HealthCheckUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWeb
 
 // Check probes url once and reports what it saw: the HTTP status when
 // the server answered, or the transport error when it did not.
-func (h HTTPHealthChecker) Check(url string) core.HealthResult {
+func (h HTTPHealthChecker) Check(url string) HealthResult {
 	timeout := h.Timeout
 	if timeout == 0 {
 		timeout = 2 * time.Second
@@ -40,16 +74,16 @@ func (h HTTPHealthChecker) Check(url string) core.HealthResult {
 	client := &http.Client{Timeout: timeout}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return core.HealthResult{Err: err}
+		return HealthResult{Err: err}
 	}
 	req.Header.Set("User-Agent", ua)
 	resp, err := client.Do(req)
 	if err != nil {
-		return core.HealthResult{Err: err}
+		return HealthResult{Err: err}
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
-	return core.HealthResult{OK: resp.StatusCode < 400, Status: resp.StatusCode}
+	return HealthResult{OK: resp.StatusCode < 400, Status: resp.StatusCode}
 }
 
-var _ core.HealthChecker = HTTPHealthChecker{}
+var _ HealthChecker = HTTPHealthChecker{}

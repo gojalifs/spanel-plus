@@ -43,7 +43,7 @@ func (f *fakeProjects) SetPHP(_ context.Context, _, _ string) (core.ApplyResult,
 	if f.setPHPErr != nil {
 		return core.ApplyResult{}, f.setPHPErr
 	}
-	return core.ApplyResult{HealthChecked: []string{"/app"}}, nil
+	return core.ApplyResult{FilesWritten: []string{"app.conf"}}, nil
 }
 func (f *fakeProjects) SetEnabled(_ context.Context, _ string, _ bool) (core.ApplyResult, error) {
 	return core.ApplyResult{}, nil
@@ -139,7 +139,7 @@ func TestProjectMutations(t *testing.T) {
 		t.Fatalf("add = %d %s added=%+v", rec.Code, rec.Body.String(), fp.added)
 	}
 	rec = call(t, h, http.MethodPost, "/api/v1/projects/app/set-php", `{"version":"8.3"}`)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "health_checked") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "files_written") {
 		t.Errorf("set-php = %d %s", rec.Code, rec.Body.String())
 	}
 	rec = call(t, h, http.MethodPost, "/api/v1/projects/app/enabled", `{"enabled":false}`)

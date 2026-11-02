@@ -78,7 +78,7 @@ func run() int {
 	var scheduler *core.Scheduler
 	var authSvc *core.AuthService
 	var auditLog core.AuditLogger
-	// Site port for health checks and dashboard links; detected
+	// Site port for dashboard links; detected
 	// from httpd.conf when the config loads, 80 (historic default)
 	// when it does not. Declared here so the Serve and OpenDesktop
 	// closures below — outside the config block — can use it.
@@ -86,7 +86,7 @@ func run() int {
 	if wireCfg, cfgErr := config.Load(baseDir); cfgErr == nil {
 		apacheHome, _ := core.ResolveApacheHome(platform.OSFileProbe{}, wireCfg.ApacheHome, config.DefaultApacheCandidates())
 		fileStore := platform.OSFileStore{}
-		// Health checks and dashboard links target the port Apache
+		// Dashboard links target the port Apache
 		// actually listens on (first Listen in httpd.conf). Port 80
 		// keeps the historic bare URL. Detection runs once at
 		// startup, so changing Listen later needs an SPanelPlus
@@ -107,19 +107,14 @@ func run() int {
 			Runner:  platform.ExecRunner{},
 			Files:   fileStore,
 			Service: platform.NewNamedServiceController(),
-			Health:  platform.HTTPHealthChecker{},
 			Clock:   clock,
-			Sleep:   time.Sleep,
 			Cfg: core.ApplyConfig{
-				ApacheHome:     apacheHome,
-				ApacheService:  wireCfg.ApacheService,
-				RegistryPath:   filepath.Join(wireCfg.DataDir, "registry.json"),
-				GeneratedDir:   filepath.Join(wireCfg.DataDir, "generated", "apache"),
-				BackupsDir:     filepath.Join(wireCfg.DataDir, "backups"),
-				HealthBaseURL:  core.SiteBaseURL(apachePort),
-				Retention:      20,
-				HealthAttempts: 10,
-				HealthInterval: 500 * time.Millisecond,
+				ApacheHome:    apacheHome,
+				ApacheService: wireCfg.ApacheService,
+				RegistryPath:  filepath.Join(wireCfg.DataDir, "registry.json"),
+				GeneratedDir:  filepath.Join(wireCfg.DataDir, "generated", "apache"),
+				BackupsDir:    filepath.Join(wireCfg.DataDir, "backups"),
+				Retention:     20,
 			},
 		}
 		projectsSvc = &core.ProjectService{Registry: registrySvc, Manager: manager, Files: fileStore}

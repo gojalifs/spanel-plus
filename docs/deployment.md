@@ -239,29 +239,36 @@ tidak hilang, hanya perlu login ulang.
   sebagai proses CLI biasa bila perlu. Panel menulis config generated ke
   `<data_dir>/generated/apache/*.conf`, lalu menjalankan
   pipeline apply: snapshot → tulis config → `httpd -t` →
-  restart Apache → health-check → commit registry. Gagal di
+  restart Apache → commit registry. Gagal di
   tengah jalan mengembalikan snapshot persis seperti semula.
+  Sejak 2026-11-02, apply TIDAK lagi memakai health-check sebagai gate:
+  dulu config baru harus membalas HTTP < 400 dulu sebelum registry
+  di-commit, tapi gate itu berulang kali menggagalkan create atas
+  penolakan sisi aplikasi yang bukan salah config (gate versi browser
+  menjawab 426, filter auth tim menjawab 403) — dan rollback-nya
+  menghapus config yang justru dibutuhkan untuk diagnosis. Yang
+  mengawal apply sekarang hanya `httpd -t` dan restart yang sukses;
+  apakah aplikasinya menjawab, dicek operator di browser, bukan panel.
 - **Port Apache selain 80 (mis. 8000) didukung.** Panel membaca
   port dari direktif `Listen` pertama di `httpd.conf` saat
-  service start, lalu memakai port itu untuk health-check apply
-  dan untuk link proyek di dashboard (port 80 tetap tampil
+  service start, lalu memakai port itu
+  untuk link proyek di dashboard (port 80 tetap tampil
   tanpa port di URL, seperti biasa). Tidak ada field
   `apache_port` di `panel.json` — `httpd.conf` adalah satu-satunya
   sumber kebenaran, jadi tidak mungkin config panel meleset
   dari port yang benar-benar dipakai Apache. Konsekuensi: bila
   `Listen` diubah sesudah panel jalan, restart service
   `SPanelPlus` supaya deteksi port ikut berubah; mengubah port
-  tanpa restart panel membuat health-check dan link dashboard
+  tanpa restart panel membuat link dashboard
   masih mengarah ke port lama.
-- **Health-check memakai User-Agent Edge modern.** Sebagian
+- **Health-check tidak lagi mengawal apply (2026-11-02).** Dulu
+  health-check memakai User-Agent Edge modern karena sebagian
   aplikasi (mis. EMC) menolak klien non-browser dengan 426
-  lewat gate versi browser di halaman login — health-check
-  ber-User-Agent Go mentah selalu ditolak gate itu walau
-  aplikasi hidup untuk user sungguhan. Health-check panel
-  karena itu mengidentifikasi diri sebagai Edge 140; error
-  beneran (500, DB mati, refused, timeout) tetap menggagalkan
-  health-check seperti biasa. Naikkan versi UA ini bila
-  aplikasi yang di-gate menaikkan minimumnya di atas 140.
+  lewat gate versi browser di halaman login. Sejak gate itu dicabut,
+  User-Agent prober tidak lagi relevan untuk apply; prober-nya
+  sendiri tetap ada sebagai utilitas standalone di
+  `internal/platform/health.go` (teruji) untuk diagnosis manual
+  di masa depan, bukan sebagai gate.
 - **Dummy smoke test bukan bagian produksi.** Folder dummy
   (`app-php82`, `app-php83`, `app-laravel`) dan config M0-nya
   hanya untuk smoke test. Sebelum go-live: hapus folder dummy
@@ -324,9 +331,7 @@ mengunci folder proyek).
   semua request API (method, path, aktor, status, durasi,
   parameter, dan teks error bila status error), tahap apply
   (snapshot, config generated, `httpd -t`, restart Apache,
-  tiap percobaan health check beserta detailnya — status HTTP
-  atau error transport seperti refused/timeout — commit,
-  rollback), login/logout, dan autostart supervisor. File
+  commit, rollback), login/logout, dan autostart supervisor. File
   berganti otomatis tengah malam tanpa restart panel; file
   lebih tua dari 90 hari (≈ 3 bulan) dihapus otomatis saat
   startup dan tiap pergantian hari. Lihat dari dashboard:

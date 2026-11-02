@@ -48,7 +48,7 @@ func (s *ProjectService) AddProject(ctx context.Context, p Project) (ApplyResult
 	}
 	candidate := reg.Clone()
 	candidate.Projects = append(candidate.Projects, p)
-	return s.apply(ctx, candidate, healthPathsFor(candidate, p))
+	return s.apply(ctx, candidate)
 }
 
 // SetPHP changes one project's PHP version through the full apply
@@ -68,13 +68,10 @@ func (s *ProjectService) SetPHP(ctx context.Context, name, version string) (Appl
 	}
 	candidate.Projects[idx].PHPVersion = version
 	candidate.Projects[idx].UpdatedAt = s.Registry.now()
-	target, _ := candidate.FindProject(name)
-	return s.apply(ctx, candidate, healthPathsFor(candidate, target))
+	return s.apply(ctx, candidate)
 }
 
 // SetEnabled enables or disables a project through the pipeline.
-// Enabling health-checks the project; disabling generates no config
-// for it, so there is nothing to health-check.
 func (s *ProjectService) SetEnabled(ctx context.Context, name string, enabled bool) (ApplyResult, error) {
 	reg, err := s.Registry.Load()
 	if err != nil {
@@ -87,11 +84,7 @@ func (s *ProjectService) SetEnabled(ctx context.Context, name string, enabled bo
 	}
 	candidate.Projects[idx].Enabled = enabled
 	candidate.Projects[idx].UpdatedAt = s.Registry.now()
-	var paths []string
-	if enabled {
-		paths = []string{candidate.Projects[idx].URLPath}
-	}
-	return s.apply(ctx, candidate, paths)
+	return s.apply(ctx, candidate)
 }
 
 // RemoveProject unregisters a project and applies: its generated
@@ -108,7 +101,7 @@ func (s *ProjectService) RemoveProject(ctx context.Context, name string) (ApplyR
 		return ApplyResult{}, fmt.Errorf("project %q not found: %w", name, ErrProjectNotFound)
 	}
 	candidate.Projects = append(candidate.Projects[:idx], candidate.Projects[idx+1:]...)
-	return s.apply(ctx, candidate, nil)
+	return s.apply(ctx, candidate)
 }
 
 // UpdateProject replaces a project's editable fields (URL path,
@@ -136,7 +129,7 @@ func (s *ProjectService) UpdateProject(ctx context.Context, name string, upd Pro
 		upd.PublicSubdir = "public"
 	}
 	candidate.Projects[idx] = upd
-	return s.apply(ctx, candidate, healthPathsFor(candidate, upd))
+	return s.apply(ctx, candidate)
 }
 
 // ConfigDiff is a before/after pair of one project's generated config
@@ -227,14 +220,14 @@ func (s *ProjectService) Warnings(name string) ([]Warning, error) {
 
 // apply validates the candidate against the machine, then runs the
 // pipeline (which validates structure again and owns rollback).
-func (s *ProjectService) apply(ctx context.Context, candidate Registry, healthPaths []string) (ApplyResult, error) {
+func (s *ProjectService) apply(ctx context.Context, candidate Registry) (ApplyResult, error) {
 	if err := candidate.ValidateStructure(); err != nil {
 		return ApplyResult{}, err
 	}
 	if err := candidate.ValidateEnvironment(s.Registry.Files); err != nil {
 		return ApplyResult{}, err
 	}
-	return s.Manager.Apply(ctx, candidate, healthPaths)
+	return s.Manager.Apply(ctx, candidate)
 }
 
 func projectIndex(reg Registry, name string) int {
@@ -244,13 +237,4 @@ func projectIndex(reg Registry, name string) int {
 		}
 	}
 	return -1
-}
-
-// healthPathsFor returns the health-check targets for a change: a
-// disabled project serves nothing, so it needs no check.
-func healthPathsFor(_ Registry, p Project) []string {
-	if !p.Enabled {
-		return nil
-	}
-	return []string{p.URLPath}
 }

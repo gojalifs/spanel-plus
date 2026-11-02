@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 )
 
 // ApacheServiceControl restarts and reports a Windows service by
@@ -18,71 +17,48 @@ type ApacheServiceControl interface {
 	Status(name string) (string, error)
 }
 
-// HealthResult is one probe's outcome. Status is the HTTP status when
-// the server answered (0 otherwise); Err is the transport error when
-// the server did not answer at all. Either one explains a failed check
-// in the activity log — the old bool-only result hid exactly that
-// (refused? 404? 500? timeout?) from the operator debugging a failed
-// apply.
-// HealthChecker probes one URL and reports the outcome in detail.
-type HealthResult struct {
-	OK     bool
-	Status int
-	Err    error
-}
-
-// Describe renders the failure detail for logs and error messages:
-// "status 404", the transport error, or "no response".
-func (r HealthResult) Describe() string {
-	if r.Status != 0 {
-		return fmt.Sprintf("status %d", r.Status)
-	}
-	if r.Err != nil {
-		return r.Err.Error()
-	}
-	return "no response"
-}
-
-type HealthChecker interface {
-	Check(url string) HealthResult
-}
-
 // ApplyConfig locates everything the apply pipeline touches.
 type ApplyConfig struct {
-	ApacheHome     string // folder with bin/httpd.exe
-	ApacheService  string // Windows service name of the managed Apache
-	RegistryPath   string // registry.json the pipeline commits at the end
-	GeneratedDir   string // folder with the generated *.conf files
-	BackupsDir     string // snapshot root (one subfolder per apply)
-	HealthBaseURL  string // e.g. http://127.0.0.1 (Apache port is the site port)
-	Retention      int    // snapshots kept (Plan F9: 20)
-	HealthAttempts int
-	HealthInterval time.Duration
+	ApacheHome    string // folder with bin/httpd.exe
+	ApacheService string // Windows service name of the managed Apache
+	RegistryPath  string // registry.json the pipeline commits at the end
+	GeneratedDir  string // folder with the generated *.conf files
+	BackupsDir    string // snapshot root (one subfolder per apply)
+	Retention     int    // snapshots kept (Plan F9: 20)
 }
 
 // ApplyResult reports a committed apply.
 type ApplyResult struct {
-	BackupDir     string   `json:"backup_dir"`
-	FilesWritten  []string `json:"files_written"`
-	HealthChecked []string `json:"health_checked"`
+	BackupDir    string   `json:"backup_dir"`
+	FilesWritten []string `json:"files_written"`
 }
 
 // ApacheManager executes the one safe path for changing what Apache
 // serves (Plan Bagian 6 & F9):
 //
 //	snapshot → write generated config → httpd -t → restart →
-//	health check → commit registry
+//	commit registry
 //
 // Any failure after the snapshot restores the snapshot exactly and
 // restarts Apache back onto it. A failed apply therefore changes
 // nothing observable — and says so, loudly, in its error.
+//
+// NOTE (2026-11-02, operator decision): the pipeline used to end with
+// a health-check gate — the new config had to answer HTTP < 400 before
+// the registry committed. That gate kept failing on application-side
+// refusals that are not config errors (a browser-version gate answering
+// 426, a team's auth filter answering 403), rolling back a correct
+// config and deleting the very files needed to diagnose it. The gate
+// is gone: what guards an apply now is httpd -t plus a successful
+// restart. Whether the application itself answers is the operator's
+// check in the browser, not the panel's. The prober survives as a
+// standalone utility in internal/platform/health.go for future manual
+// diagnostics; nothing in the pipeline calls it anymore.
 type ApacheManager struct {
 	Runner  CommandRunner
 	Files   FileStore
 	Service ApacheServiceControl
-	Health  HealthChecker
 	Clock   Clock
-	Sleep   func(time.Duration)
 	Cfg     ApplyConfig
 	Log     *slog.Logger // nil = no activity logging (direct CLI use)
 
@@ -129,9 +105,8 @@ func (m *ApacheManager) Restart() error {
 }
 
 // Apply moves Apache + registry to the candidate state, or leaves
-// everything exactly as it was. healthPaths are URL paths (registry
-// url_path values) that must answer after the restart.
-func (m *ApacheManager) Apply(ctx context.Context, candidate Registry, healthPaths []string) (ApplyResult, error) {
+// everything exactly as it was.
+func (m *ApacheManager) Apply(ctx context.Context, candidate Registry) (ApplyResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -139,7 +114,7 @@ func (m *ApacheManager) Apply(ctx context.Context, candidate Registry, healthPat
 	for _, p := range candidate.Projects {
 		names = append(names, p.Name)
 	}
-	m.logInfo("apply start", "projects", names, "health_paths", healthPaths)
+	m.logInfo("apply start", "projects", names)
 
 	if err := candidate.ValidateStructure(); err != nil {
 		return ApplyResult{}, err
@@ -186,11 +161,6 @@ func (m *ApacheManager) Apply(ctx context.Context, candidate Registry, healthPat
 		return fail("restart apache", err)
 	}
 	m.logInfo("apply apache restarted", "service", m.Cfg.ApacheService)
-	for _, path := range healthPaths {
-		if err := m.healthCheck(path); err != nil {
-			return fail("health check "+path, err)
-		}
-	}
 
 	// Commit point: only now does the registry move to the candidate.
 	raw, err := candidate.Marshal()
@@ -203,29 +173,7 @@ func (m *ApacheManager) Apply(ctx context.Context, candidate Registry, healthPat
 	m.pruneBackups()
 
 	m.logInfo("apply committed", "files", files, "backup", snapshot.dir)
-	return ApplyResult{BackupDir: snapshot.dir, FilesWritten: files, HealthChecked: healthPaths}, nil
-}
-
-// healthCheck polls one path with the configured attempt budget.
-// Every attempt is logged with what the probe actually saw, so a
-// failed apply leaves a trail that distinguishes "Apache belum
-// dengar" (refused) from "config salah target" (404) and "aplikasi
-// error" (500) — the distinction the old bool-only result erased.
-func (m *ApacheManager) healthCheck(path string) error {
-	url := strings.TrimSuffix(m.Cfg.HealthBaseURL, "/") + path
-	var last HealthResult
-	for i := 0; i < m.Cfg.HealthAttempts; i++ {
-		last = m.Health.Check(url)
-		if last.OK {
-			m.logInfo("health check ok", "url", url, "attempt", i+1, "of", m.Cfg.HealthAttempts)
-			return nil
-		}
-		m.logInfo("health check attempt failed", "url", url, "attempt", i+1, "of", m.Cfg.HealthAttempts, "detail", last.Describe())
-		if i+1 < m.Cfg.HealthAttempts {
-			m.Sleep(m.Cfg.HealthInterval)
-		}
-	}
-	return fmt.Errorf("%s did not answer acceptably after %d attempts (last: %s)", url, m.Cfg.HealthAttempts, last.Describe())
+	return ApplyResult{BackupDir: snapshot.dir, FilesWritten: files}, nil
 }
 
 // writeGenerated makes GeneratedDir match the generated set exactly:

@@ -350,9 +350,6 @@ func (c *CLI) runService(args []string) int {
 func (c *CLI) printApplyResult(res core.ApplyResult) {
 	fmt.Fprintf(c.deps.Out, "Apply OK. Snapshot: %s\n", res.BackupDir)
 	fmt.Fprintf(c.deps.Out, "Config ditulis: %d file (%s)\n", len(res.FilesWritten), strings.Join(res.FilesWritten, ", "))
-	if len(res.HealthChecked) > 0 {
-		fmt.Fprintf(c.deps.Out, "Health check lulus: %s\n", strings.Join(res.HealthChecked, ", "))
-	}
 }
 
 func (c *CLI) runProject(args []string) int {
