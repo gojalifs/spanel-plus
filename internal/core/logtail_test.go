@@ -17,7 +17,11 @@ func TestProcessLogPathIsDated(t *testing.T) {
 
 func TestLatestProcessLogPath(t *testing.T) {
 	dir := t.TempDir()
-	proj := filepath.Join(dir, "emc")
+	// Expectations use joinPath, not filepath.Join: the code under test
+	// returns slash paths on every OS, while filepath.Join uses
+	// backslashes on Windows — comparing the two spellings of the same
+	// file fails the Windows CI job only.
+	proj := joinPath(dir, "emc")
 	if err := os.MkdirAll(proj, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +30,7 @@ func TestLatestProcessLogPath(t *testing.T) {
 		t.Errorf("empty dir: got %q, want today's path", got)
 	}
 	// A run from an earlier day is the live file until a newer one appears.
-	old := filepath.Join(proj, "queue-2026-10-28.log")
+	old := joinPath(proj, "queue-2026-10-28.log")
 	if err := os.WriteFile(old, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +38,7 @@ func TestLatestProcessLogPath(t *testing.T) {
 		t.Errorf("earlier-day file must win, got %q", got)
 	}
 	// A newer day supersedes it.
-	today := filepath.Join(proj, "queue-"+time.Now().Format("2006-01-02")+".log")
+	today := joinPath(proj, "queue-"+time.Now().Format("2006-01-02")+".log")
 	if err := os.WriteFile(today, []byte("new"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -45,11 +49,11 @@ func TestLatestProcessLogPath(t *testing.T) {
 
 func TestLatestProcessLogPathFallsBackToLegacy(t *testing.T) {
 	dir := t.TempDir()
-	proj := filepath.Join(dir, "emc")
+	proj := joinPath(dir, "emc")
 	if err := os.MkdirAll(proj, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	legacy := filepath.Join(proj, "queue.log")
+	legacy := joinPath(proj, "queue.log")
 	if err := os.WriteFile(legacy, []byte("legacy"), 0o644); err != nil {
 		t.Fatal(err)
 	}
