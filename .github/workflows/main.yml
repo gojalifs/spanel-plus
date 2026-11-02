@@ -41,14 +41,17 @@ jobs:
 
       - name: unit tests
         run: go test ./...
+      - name: short sha
+        shell: bash
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
       - name: build (Windows)
         if: runner.os == 'Windows'
-        run: go build -ldflags "-X github.com/gojalifs/spanel-plus/internal/buildinfo.Version=dev -X github.com/gojalifs/spanel-plus/internal/buildinfo.Commit=${{ github.sha }}" -o dist/panel.exe ./cmd/panel
+        run: go build -ldflags "-X github.com/gojalifs/spanel-plus/internal/buildinfo.Version=dev-${{ env.SHORT_SHA }} -X github.com/gojalifs/spanel-plus/internal/buildinfo.Commit=${{ github.sha }}" -o dist/panel.exe ./cmd/panel
 
       - name: build (non-Windows, compile check only)
         if: runner.os != 'Windows'
-        run: go build -ldflags "-X github.com/gojalifs/spanel-plus/internal/buildinfo.Version=dev -X github.com/gojalifs/spanel-plus/internal/buildinfo.Commit=${{ github.sha }}" -o dist/panel ./cmd/panel
+        run: go build -ldflags "-X github.com/gojalifs/spanel-plus/internal/buildinfo.Version=dev-${{ env.SHORT_SHA }} -X github.com/gojalifs/spanel-plus/internal/buildinfo.Commit=${{ github.sha }}" -o dist/panel ./cmd/panel
 
       - name: upload panel binary
         uses: actions/upload-artifact@v4
