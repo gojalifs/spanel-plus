@@ -44,11 +44,11 @@ jobs:
 
       - name: build (Windows)
         if: runner.os == 'Windows'
-        run: go build -o dist/panel.exe ./cmd/panel
+        run: go build -ldflags "-X github.com/gojalifs/spanel-plus/internal/buildinfo.Version=dev -X github.com/gojalifs/spanel-plus/internal/buildinfo.Commit=${{ github.sha }}" -o dist/panel.exe ./cmd/panel
 
       - name: build (non-Windows, compile check only)
         if: runner.os != 'Windows'
-        run: go build -o dist/panel ./cmd/panel
+        run: go build -ldflags "-X github.com/gojalifs/spanel-plus/internal/buildinfo.Version=dev -X github.com/gojalifs/spanel-plus/internal/buildinfo.Commit=${{ github.sha }}" -o dist/panel ./cmd/panel
 
       - name: upload panel binary
         uses: actions/upload-artifact@v4
@@ -76,7 +76,7 @@ jobs:
           cache: true
 
       - name: build
-        run: go build -trimpath -ldflags "-s -w" -o dist/panel-${{ github.ref_name }}.exe ./cmd/panel
+        run: go build -trimpath -ldflags "-s -w -X github.com/gojalifs/spanel-plus/internal/buildinfo.Version=${{ github.ref_name }} -X github.com/gojalifs/spanel-plus/internal/buildinfo.Commit=${{ github.sha }}" -o dist/panel-${{ github.ref_name }}.exe ./cmd/panel
 
       - name: create release with binary
         env:
