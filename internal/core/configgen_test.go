@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -87,5 +88,44 @@ func TestConfigGenRejectsInvalidRegistry(t *testing.T) {
 	reg.Projects[0].PHPVersion = "9.9" // unregistered
 	if _, err := (Generator{}).GenerateAll(reg); err == nil {
 		t.Fatal("GenerateAll must refuse an invalid registry")
+	}
+}
+
+func TestConfigGenTLSVHost(t *testing.T) {
+	// Tanpa TLS: tidak ada Listen tambahan maupun VirtualHost.
+	out, err := Generator{}.GenerateAll(goldenFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out[GlobalConfigName], "VirtualHost") {
+		t.Errorf("tanpa TLS, global tidak boleh memuat VirtualHost")
+	}
+	// Dengan TLS: Listen + VirtualHost persis, path slash.
+	out, err = Generator{TLS: TLSVHost{
+		Enabled:  true,
+		Port:     8443,
+		CertFile: `C:\panel\data\tls\server.crt`,
+		KeyFile:  `C:\panel\data\tls\server.key`,
+	}}.GenerateAll(goldenFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	global := out[GlobalConfigName]
+	for _, want := range []string{
+		"Listen 8443",
+		"<VirtualHost *:8443>",
+		"SSLEngine on",
+		`SSLCertificateFile "C:/panel/data/tls/server.crt"`,
+		`SSLCertificateKeyFile "C:/panel/data/tls/server.key"`,
+		"SSLProtocol -all +TLSv1.2 +TLSv1.3",
+		"</VirtualHost>",
+	} {
+		if !strings.Contains(global, want) {
+			t.Errorf("global harus memuat %q, dapat:\n%s", want, global)
+		}
+	}
+	// Proyek lain tidak berubah oleh vhost.
+	if !strings.Contains(out["app-laravel.conf"], "app-laravel") {
+		t.Errorf("file proyek harus tetap ter-render")
 	}
 }

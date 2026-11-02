@@ -73,6 +73,36 @@ type Config struct {
 	// ADServer is "dummy"): username + bcrypt password_hash +
 	// group CNs. Generate hashes with: panel admin hash-password.
 	ADDummyUsers []core.DummyUser `json:"ad_dummy_users,omitempty"`
+	// TLSDir overrides where TLS material lives. Empty means
+	// <DataDir>/tls. The panel never writes panel.json, but it does
+	// write its own files under this directory (ca.crt, server.crt,
+	// server.key, tls.json) — see internal/core/tls.go.
+	TLSDir string `json:"tls_dir"`
+	// TLSApache enables the :443 VirtualHost for projects when TLS
+	// material exists. False means: dashboard HTTPS only, Apache
+	// stays HTTP-only. Default true (set in Defaults); explicit
+	// false opts out.
+	TLSApache bool `json:"tls_apache"`
+	// TLSApachePort is the Apache HTTPS port. Zero means the default
+	// 443 (see EffectiveTLSApachePort); a value outside 1-65535 is
+	// rejected by Validate.
+	TLSApachePort int `json:"tls_apache_port"`
+	// TLSIPs and TLSNames are the SANs for a freshly issued leaf,
+	// read at tls init time. Empty TLSIPs means: auto-detect the
+	// machine's LAN IPs (127.0.0.1 is always added on top).
+	TLSIPs   []string `json:"tls_ips"`
+	TLSNames []string `json:"tls_names"`
+	// TLSCAYears is the private-CA validity in years at init time.
+	// Zero means the default 100. Values above 100 are allowed but
+	// warn loudly at init (a successor must know the CA outlives
+	// them); a value that cannot be encoded (past year 9999) fails
+	// init loudly.
+	TLSCAYears int `json:"tls_ca_validity_years"`
+	// TLSLeafDays is the leaf validity in days. Zero means 365.
+	TLSLeafDays int `json:"tls_leaf_validity_days"`
+	// TLSRenewBeforeDays is the auto-renew threshold: the leaf is
+	// renewed when fewer than this many days remain. Zero means 30.
+	TLSRenewBeforeDays int `json:"tls_renew_before_days"`
 }
 
 // DefaultApacheCandidates are probed, in order, when ApacheHome is empty.
@@ -107,12 +137,62 @@ func PHPScanRoot(apacheHome string) string {
 // under it (Plan D9 — nothing is written into project folders).
 func Defaults(baseDir string) Config {
 	return Config{
-		Port:          DefaultPort,
-		DataDir:       filepath.Join(baseDir, "data"),
-		LogDir:        filepath.Join(baseDir, "logs"),
-		ApacheHome:    "",
-		ApacheService: DefaultApacheService,
+		Port:               DefaultPort,
+		DataDir:            filepath.Join(baseDir, "data"),
+		LogDir:             filepath.Join(baseDir, "logs"),
+		ApacheHome:         "",
+		ApacheService:      DefaultApacheService,
+		TLSApache:          true,
+		TLSApachePort:      443,
+		TLSCAYears:         100,
+		TLSLeafDays:        365,
+		TLSRenewBeforeDays: 30,
 	}
+}
+
+// EffectiveTLSDir resolves where TLS material lives: the configured
+// tls_dir, or <DataDir>/tls when unset.
+func (c Config) EffectiveTLSDir() string {
+	if c.TLSDir != "" {
+		return c.TLSDir
+	}
+	return filepath.Join(c.DataDir, "tls")
+}
+
+// EffectiveTLSApachePort resolves the Apache HTTPS port: the
+// configured value, or 443 when unset (zero).
+func (c Config) EffectiveTLSApachePort() int {
+	if c.TLSApachePort != 0 {
+		return c.TLSApachePort
+	}
+	return 443
+}
+
+// EffectiveTLSCAYears resolves the CA validity: the configured value,
+// or 100 when unset (zero).
+func (c Config) EffectiveTLSCAYears() int {
+	if c.TLSCAYears != 0 {
+		return c.TLSCAYears
+	}
+	return 100
+}
+
+// EffectiveTLSLeafDays resolves the leaf validity: the configured
+// value, or 365 when unset (zero).
+func (c Config) EffectiveTLSLeafDays() int {
+	if c.TLSLeafDays != 0 {
+		return c.TLSLeafDays
+	}
+	return 365
+}
+
+// EffectiveTLSRenewBeforeDays resolves the renew threshold: the
+// configured value, or 30 when unset (zero).
+func (c Config) EffectiveTLSRenewBeforeDays() int {
+	if c.TLSRenewBeforeDays != 0 {
+		return c.TLSRenewBeforeDays
+	}
+	return 30
 }
 
 // Load reads baseDir/panel.json over Defaults(baseDir). A missing file
@@ -159,6 +239,18 @@ func (c Config) Validate() error {
 	}
 	if c.ApacheService == "" {
 		return fmt.Errorf("config: apache_service must not be empty")
+	}
+	if c.TLSApachePort < 0 || c.TLSApachePort > 65535 {
+		return fmt.Errorf("config: tls_apache_port %d out of range 1-65535", c.TLSApachePort)
+	}
+	if c.TLSCAYears < 0 {
+		return fmt.Errorf("config: tls_ca_validity_years %d must not be negative", c.TLSCAYears)
+	}
+	if c.TLSLeafDays < 0 {
+		return fmt.Errorf("config: tls_leaf_validity_days %d must not be negative", c.TLSLeafDays)
+	}
+	if c.TLSRenewBeforeDays < 0 {
+		return fmt.Errorf("config: tls_renew_before_days %d must not be negative", c.TLSRenewBeforeDays)
 	}
 	return nil
 }

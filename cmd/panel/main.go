@@ -115,6 +115,9 @@ func run() int {
 				GeneratedDir:  filepath.Join(wireCfg.DataDir, "generated", "apache"),
 				BackupsDir:    filepath.Join(wireCfg.DataDir, "backups"),
 				Retention:     20,
+				TLSDir:        wireCfg.EffectiveTLSDir(),
+				TLSApache:     wireCfg.TLSApache,
+				TLSApachePort: wireCfg.EffectiveTLSApachePort(),
 			},
 		}
 		projectsSvc = &core.ProjectService{Registry: registrySvc, Manager: manager, Files: fileStore}
@@ -161,10 +164,11 @@ func run() int {
 		Projects:  projectOps,
 		Stdin:     os.Stdin,
 		NewAPI: func(cfg config.Config) cli.APIClient {
+			base, httpClient := cli.PanelAPIEndpoint(cfg)
 			return cli.NewHTTPAPIClient(
-				fmt.Sprintf("http://127.0.0.1:%d", cfg.Port),
+				base,
 				cli.FileTokenStore{Path: filepath.Join(cfg.DataDir, ".cli-session")},
-				nil,
+				httpClient,
 			)
 		},
 		NewAuth: func(cfg config.Config) *core.AuthService {
@@ -219,7 +223,13 @@ func run() int {
 			}
 			application.AttachApachePort(apachePort)
 			handler := httpapi.NewHandler(application, logger)
+			// The desktop opens the same dashboard the service
+			// serves: https when TLS material exists (the browser
+			// warns until ca.crt is installed), http otherwise.
 			base := fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)
+			if core.HasTLSMaterial(cfg.EffectiveTLSDir()) {
+				base = fmt.Sprintf("https://127.0.0.1:%d", cfg.Port)
+			}
 			var runErr error
 			finished := make(chan struct{})
 			launcher := desktop.Launcher{

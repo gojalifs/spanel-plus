@@ -396,13 +396,15 @@ mengunci folder proyek).
 
 ## 7. Keamanan — baca sebelum membuka akses
 
-- **Panel tidak menyediakan TLS untuk UI-nya.** Cookie sesi
-  `HttpOnly SameSite=Lax`, **bukan** `Secure`. Karena itu port
-  panel (8888) **tidak boleh** dibuka ke jaringan yang tidak
-  dipercaya. Di LAN internal, batasi lewat Windows Firewall
-  hanya ke workstation admin/IT. Bila UI harus diakses dari
-  luar LAN, letakkan reverse proxy TLS di depannya (di luar
-  panel) — panel sendiri tidak menerbitkan sertifikat.
+- **TLS untuk UI dan proyek tersedia sejak v1 HTTPS (private CA
+  milik panel, lihat §11).** Tanpa material TLS, dashboard tetap
+  HTTP seperti sebelumnya. Cookie sesi `HttpOnly SameSite=Lax`,
+  **bukan** `Secure`. Karena itu port panel (8888) **tidak
+  boleh** dibuka ke jaringan yang tidak dipercaya, bahkan sesudah
+  HTTPS aktif: di LAN internal, batasi lewat Windows Firewall
+  hanya ke workstation admin/IT. Bila UI harus diakses dari luar
+  LAN, letakkan reverse proxy TLS di depannya (di luar panel)
+  sebagai lapisan tambahan.
 - Jangan pernah mengaktifkan `ad_allow_insecure_ldap` atau
   `ad_server: "dummy"` di produksi. Keduanya hanya untuk test
   dan keduanya tercatat sebagai warning.
@@ -497,3 +499,145 @@ Lalu verifikasi dari browser/terminal lain:
 - [ ] Password break-glass tersimpan aman di luar server.
 - [ ] Dokumen ini + `panel.json` final tersimpan untuk tim IT
       (8 orang) sebagai acuan operasional.
+- [ ] (Bila HTTPS diaktifkan) `panel tls status` menunjukkan
+      leaf + CA belum kedaluwarsa, ca.crt terinstall di PC admin,
+      dan `https://<IP>:443/<proyek>` menjawab (§11).
+
+## 11. HTTPS/TLS (private CA milik panel)
+
+Panel adalah alat LAN tanpa domain, jadi tidak ada jalur
+sertifikat publik: Let's Encrypt tidak menerbitkan untuk IP, dan
+CA publik dilarang menerbitkan untuk IP privat. Karena itu panel
+menerbitkan private CA-nya sendiri. Client menginstall `ca.crt`
+sekali (manual atau via Group Policy); sesudah itu semua leaf
+yang diterbitkan panel — termasuk hasil renew — dipercaya
+otomatis. Leaf self-signed ditolak dengan alasan yang sama:
+setiap renew berarti install ulang di semua client.
+
+### Aktivasi (presence-based, bukan flag)
+
+Tidak ada field `tls_enabled` di `panel.json`. Yang menentukan:
+
+- `<data_dir>/tls` berisi `server.crt` + `server.key` yang valid
+  → dashboard HTTPS (port panel tetap 8888), dan apply berikut
+  menambahkan vhost `:443` untuk proyek (bila `tls_apache`
+  tidak `false`).
+- Tidak ada material → HTTP seperti sebelumnya.
+- Ada tapi rusak → service **gagal start** dengan pesan jelas
+  (fail-closed: TLS yang aktif tidak boleh diam-diam jadi HTTP).
+  Pulih lewat CLI (di bawah), bukan dashboard — dashboard tidak
+  bisa dijangkau saat service gagal start.
+
+Invarian tetap: panel tidak pernah menulis `panel.json`. Yang
+ditulis panel hanyalah file-nya sendiri di direktori TLS
+(`ca.crt`, `ca.key`, `server.crt`, `server.key`, `tls.json`).
+
+### Init dan perintah CLI (file-direct)
+
+```powershell
+C:\Panel\panel.exe tls init --ips 192.168.89.21
+C:\Panel\panel.exe tls status
+C:\Panel\panel.exe tls renew
+C:\Panel\panel.exe tls regenerate-leaf --ips 192.168.89.21
+C:\Panel\panel.exe tls reinit-ca --confirm
+C:\Panel\panel.exe tls export-ca spanel-ca.crt
+C:\Panel\panel.exe tls disable
+```
+
+- `--ips` kosong: pakai `tls_ips` di `panel.json`, atau deteksi
+  IP LAN mesin. `127.0.0.1` selalu ditambah sebagai SAN.
+  Tanpa IP yang dikonfigurasi DAN terdeteksi, init gagal lantang
+  (sertifikat loopback-only tidak melayani siapa pun di LAN).
+- CA default 100 tahun (`tls_ca_validity_years`); di atas 100
+  hanya warning di log, tidak dilarang. Nilai yang tidak bisa
+  di-encode (lewat tahun 9999) gagal saat init.
+- Leaf default 1 tahun (`tls_leaf_validity_days`); auto-renew
+  bila sisa < 30 hari (`tls_renew_before_days`): dicek saat
+  start panel dan tiap 24 jam. Gagal renew → log lantang +
+  banner di dashboard; tidak pernah diam. Renew yang belum
+  waktunya = no-op (tidak restart Apache).
+- Leaf baru langsung dipakai dashboard tanpa restart panel
+  (sertifikat dibaca tiap handshake). Apache di-restart otomatis
+  tiap leaf berganti, karena Apache memuat sertifikat saat start.
+- `reinit-ca` mengganti trust anchor: **semua client harus
+  install ulang ca.crt**. Wajib `--confirm`.
+- `disable` memindahkan direktori tls ke
+  `tls.disabled-<timestamp>` (tidak menghapus). Restart panel
+  untuk kembali HTTP; re-apply proyek untuk menghapus vhost
+  `:443`.
+
+Field `panel.json` yang relevan (semua opsional, hanya override):
+
+- `tls_dir` (default `<data_dir>/tls`), `tls_apache` (default
+  `true`; `false` = Apache tetap HTTP walau material ada),
+  `tls_apache_port` (default 443 — ubah bila XAMPP masih mengikat
+  443), `tls_ips`, `tls_names`, `tls_ca_validity_years`,
+  `tls_leaf_validity_days`, `tls_renew_before_days`.
+
+### Install ca.crt di client
+
+- Windows GUI: klik ganda `ca.crt` → Install Certificate →
+  Local Machine → Trusted Root Certification Authorities.
+- Windows CLI (admin):
+  `certutil -addstore -f "Root" spanel-ca.crt`
+- Group Policy (domain `siws.local`): Computer Configuration →
+  Policies → Windows Settings → Security Settings → Public Key
+  Policies → Trusted Root Certification Authorities → Import
+  `ca.crt`. Berlaku untuk semua PC domain tanpa instal manual.
+- Firefox memakai store sendiri: Settings → Privacy & Security
+  → Certificates → Authorities → Import (centang "Trust this CA
+  to identify websites").
+
+Yang dibagikan hanya `ca.crt` (publik). `ca.key` tidak pernah
+keluar dari server dan tidak pernah diserve API mana pun.
+
+### Backup dan restore
+
+Backup direktori `tls` utuh ke vault/offline (berisi `ca.key` —
+kehilangan kunci CA berarti tidak bisa renew/regenerate, hanya
+reinit yang memaksa semua client install ulang). Restore = salin
+kembali + restart panel.
+
+### Troubleshooting
+
+- Warning browser sesudah init = `ca.crt` belum diinstall di
+  client itu (bukan sertifikat rusak).
+- Mismatch / nama tidak cocok = IP server berubah → jalankan
+  `tls regenerate-leaf --ips <IP-baru>`, lalu restart Apache.
+- Port 443 bentrok XAMPP = Apache gagal start sesudah apply →
+  ubah `tls_apache_port` (mis. 8443) di `panel.json` + re-apply,
+  atau matikan SSL XAMPP.
+- Service gagal start sesudah material diubah = cek log panel
+  (pesan TLS menyebut file yang rusak); pulihkan dari backup
+  atau `tls disable` untuk kembali HTTP.
+- CA key curian = trust total (CA ini bisa mint nama privat apa
+  pun): batasi akses direktori tls hanya untuk admin, dan simpan
+  backup offline.
+- Name constraints: CA hanya boleh mint IP privat (10/8,
+  172.16/12, 192.168/16, 127/8) — leaf dengan IP publik ditolak
+  verifier. Konsekuensi: SAN IP publik di masa depan butuh CA
+  baru (reinit).
+- HTTP proyek tetap hidup di v1 (tanpa redirect paksa), dan
+  tidak ada HSTS (berbahaya bila TLS rusak: browser menolak
+  fallback HTTP). Tidak ikut v1: ACME/Let's Encrypt, mTLS,
+  OCSP/CRL, sertifikat per proyek, otomasi ACL Windows.
+
+### Urutan aktivasi pertama (saat sepi operator)
+
+1. Install binary TLS (prosedur biasa: stop service, backup
+   `panel.exe`, copy, start). Dashboard masih HTTP.
+2. `panel tls init --ips <IP-statik>` → cek `tls status`.
+3. Restart service → dashboard `https://<IP>:8888`. Install
+   `ca.crt` di PC admin → warning hilang.
+4. Apply proyek apa saja → conf dapat vhost `:443` → restart
+   Apache → `https://<IP>:443/<proyek>` jalan (sesudah CA
+   install). **Langkah ini sekaligus membuktikan asumsi
+   pewarisan Alias/Directory server-level ke dalam vhost di
+   Windows.** Bila proyek HTTPS 404 padahal HTTP-nya jalan,
+   laporkan — fallback-nya adalah duplikasi blok ke dalam vhost.
+5. Install CA di PC IT lain (manual/GPO).
+6. Verifikasi: `tls renew` manual (expiry maju, dashboard tetap
+   jalan tanpa restart, Apache restart, HTTPS tetap jalan); uji
+   fail-closed (rename `server.key` → service gagal start +
+   pesan jelas → kembalikan → jalan); backup direktori tls.
+

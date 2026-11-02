@@ -68,14 +68,18 @@ func TestDoctorAllPassWithDiscoveredHome(t *testing.T) {
 		t.Fatalf("expected healthy report, got %+v", rep.Checks)
 	}
 	// M5: httpd-syntax joins the M1 five (home, version, mod-fcgid,
-	// panel-port, data-dir). Service/registry checks appear only
-	// when wired/supplied.
-	if len(rep.Checks) != 6 {
-		t.Fatalf("expected 6 checks, got %d", len(rep.Checks))
+	// panel-port, data-dir). HTTPS adds tls-material (pass when no
+	// material exists). Service/registry checks appear only when
+	// wired/supplied.
+	if len(rep.Checks) != 7 {
+		t.Fatalf("expected 7 checks, got %d", len(rep.Checks))
 	}
 	for _, c := range rep.Checks {
 		if c.Name == "httpd-syntax" && c.Status != StatusPass {
 			t.Errorf("httpd-syntax status = %s, want pass", c.Status)
+		}
+		if c.Name == "tls-material" && c.Status != StatusPass {
+			t.Errorf("tls-material without material status = %s, want pass", c.Status)
 		}
 	}
 	if !strings.Contains(rep.Checks[1].Detail, "2.4.69") {

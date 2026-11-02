@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // CheckStatus is the outcome of one doctor check.
@@ -62,6 +63,11 @@ type DoctorInput struct {
 	ADDomain  string
 	ADBaseDN  string
 	ADGroupDN string
+	// TLS fields feed the HTTPS checks: TLSDir is the resolved
+	// material dir (empty = no TLS configured); TLSApache marks
+	// that the :443 vhost is wanted when material exists.
+	TLSDir    string
+	TLSApache bool
 }
 
 // Doctor validates the environment the panel depends on. M1 scope
@@ -99,13 +105,20 @@ func (d Doctor) Run(ctx context.Context, in DoctorInput) Report {
 		// record them as failed instead of skipping silently.
 		add(Check{"httpd-version", StatusFail, "skipped: no Apache home resolved"})
 		add(Check{"mod-fcgid", StatusFail, "skipped: no Apache home resolved"})
+		if in.TLSApache && HasTLSMaterial(in.TLSDir) {
+			add(Check{"mod-ssl", StatusFail, "skipped: no Apache home resolved"})
+		}
 	} else {
 		add(d.checkHTTPdVersion(ctx, home))
 		add(d.checkModFcgid(home))
 		add(d.checkHTTPdSyntax(ctx, home))
+		if in.TLSApache && HasTLSMaterial(in.TLSDir) {
+			add(d.checkModSSL(ctx, home))
+		}
 	}
 	add(d.checkPanelPort(in.PanelPort, in.PanelPortSelf))
 	add(d.checkDataDir(in.DataDir))
+	add(d.tlsMaterialCheck(in))
 	if c, ok := d.apacheServiceCheck(in.ApacheService); ok {
 		add(c)
 	}
@@ -209,6 +222,53 @@ func (d Doctor) checkModFcgid(home string) Check {
 			fmt.Sprintf("%s not found — multi-PHP via mod_fcgid (Plan D4) cannot work; install the mod_fcgid build matching this Apache (see M0 findings)", mod)}
 	}
 	return Check{"mod-fcgid", StatusPass, mod}
+}
+
+// checkModSSL gates the :443 vhost the same way mod_fcgid is gated
+// for multi-PHP: when TLS Apache is active, httpd -M must show
+// ssl_module, or the generated SSLEngine directives fail httpd -t
+// at the next apply. It only runs when TLS Apache is active; an
+// HTTP-only panel has no ssl requirement.
+func (d Doctor) checkModSSL(ctx context.Context, home string) Check {
+	httpd := filepath.Join(home, "bin", "httpd.exe")
+	if !d.Files.Exists(httpd) {
+		return Check{"mod-ssl", StatusFail, httpd + " not found — cannot run httpd -M"}
+	}
+	out, err := d.Runner.Run(ctx, httpd, "-M")
+	if err != nil {
+		return Check{"mod-ssl", StatusFail,
+			fmt.Sprintf("running httpd -M failed: %v (output: %s)", err, strings.TrimSpace(out))}
+	}
+	if !strings.Contains(out, "ssl_module") {
+		return Check{"mod-ssl", StatusFail,
+			"TLS Apache aktif tapi ssl_module tidak ke-load (httpd -M) — aktifkan LoadModule ssl_module di httpd.conf, atau set tls_apache=false bila HTTPS Apache tidak diinginkan"}
+	}
+	return Check{"mod-ssl", StatusPass, "ssl_module ter-load (httpd -M)"}
+}
+
+// tlsMaterialCheck reports the TLS state: absent is a healthy pass
+// (HTTP panel), broken or expired material is a fail (the dashboard
+// cannot start HTTPS with it), and a soon-expiring leaf or CA is a
+// warn so renewal/rotation is planned before it becomes an outage.
+func (d Doctor) tlsMaterialCheck(in DoctorInput) Check {
+	if in.TLSDir == "" || !HasTLSMaterial(in.TLSDir) {
+		return Check{"tls-material", StatusPass, "TLS tidak aktif — dashboard HTTP (jalankan: panel tls init untuk HTTPS)"}
+	}
+	st, err := Status(in.TLSDir)
+	if err != nil {
+		return Check{"tls-material", StatusFail,
+			fmt.Sprintf("material TLS rusak: %v — dashboard gagal start HTTPS; periksa dengan panel tls status dan restore dari backup tls dir", err)}
+	}
+	if time.Until(st.LeafExpiry) < 30*24*time.Hour {
+		return Check{"tls-material", StatusWarn,
+			fmt.Sprintf("leaf TLS kedaluwarsa %s — renew segera (panel tls renew, atau tunggu auto-renew harian)", st.LeafExpiry.Format("2006-01-02"))}
+	}
+	if time.Until(st.CAExpiry) < 365*24*time.Hour {
+		return Check{"tls-material", StatusWarn,
+			fmt.Sprintf("CA TLS kedaluwarsa %s — rencanakan reinit-ca (semua client harus install ulang ca.crt)", st.CAExpiry.Format("2006-01-02"))}
+	}
+	return Check{"tls-material", StatusPass,
+		fmt.Sprintf("TLS aktif — CA sampai %s, leaf sampai %s, fingerprint %s", st.CAExpiry.Format("2006-01-02"), st.LeafExpiry.Format("2006-01-02"), st.CAFingerprint)}
 }
 
 func (d Doctor) checkPanelPort(port int, self bool) Check {

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gojalifs/spanel-plus/internal/config"
 	"github.com/gojalifs/spanel-plus/internal/core"
 )
 
@@ -130,6 +133,45 @@ func NewHTTPAPIClient(base string, tokens TokenStore, httpClient *http.Client) A
 	return &httpAPIClient{base: strings.TrimSuffix(base, "/"), tokens: tokens, http: httpClient}
 }
 
+// PanelAPIEndpoint resolves the CLI's panel address + HTTP client for
+// one config. When TLS material exists, the panel serves HTTPS on the
+// same port, so the client speaks https with the panel's own ca.crt
+// as the root pool — never InsecureSkipVerify. When the material is
+// present but the CA cannot be loaded, every request fails with that
+// exact error instead of a misleading "panel down".
+func PanelAPIEndpoint(cfg config.Config) (string, *http.Client) {
+	base := fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)
+	client := &http.Client{Timeout: 120 * time.Second}
+	dir := cfg.EffectiveTLSDir()
+	if !core.HasTLSMaterial(dir) {
+		return base, client
+	}
+	base = fmt.Sprintf("https://127.0.0.1:%d", cfg.Port)
+	caPath, _, _, _ := core.TLSPaths(dir)
+	raw, err := os.ReadFile(caPath)
+	if err != nil {
+		client.Transport = errTransport{err: fmt.Errorf("TLS panel aktif tapi %s tidak bisa dibaca: %w", caPath, err)}
+		return base, client
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(raw) {
+		client.Transport = errTransport{err: fmt.Errorf("TLS panel aktif tapi %s bukan sertifikat CA yang valid", caPath)}
+		return base, client
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = &tls.Config{RootCAs: pool}
+	client.Transport = tr
+	return base, client
+}
+
+// errTransport fails every request with a fixed error (broken TLS
+// material: the client must say so, not pretend the panel is down).
+type errTransport struct{ err error }
+
+func (t errTransport) RoundTrip(_ *http.Request) (*http.Response, error) {
+	return nil, t.err
+}
+
 func (c *httpAPIClient) request(method, path string, body any) (int, []byte, http.Header, error) {
 	var rdr io.Reader
 	if body != nil {
@@ -151,7 +193,7 @@ func (c *httpAPIClient) request(method, path string, body any) (int, []byte, htt
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("panel tidak menjawab di %s — jalankan panel dulu (panel serve / panel service start), lalu ulangi: %w", c.base, ErrPanelDown)
+		return 0, nil, nil, fmt.Errorf("panel tidak menjawab di %s — jalankan panel dulu (panel serve / panel service start), lalu ulangi (%v): %w", c.base, err, ErrPanelDown)
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)

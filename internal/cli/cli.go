@@ -95,13 +95,15 @@ Commands:
   project list          Daftar proyek di registry
   project add --name N --url /path --path C:\folder --type laravel|ci4|php-native|static --php 8.2 [--public public] [--disabled]
   project update N [flags seperti add]   Ubah proyek (flag yang tidak disebut memakai nilai lama)
-  project set-php N V   Ganti versi PHP proyek lewat pipa apply (backup -> httpd -t -> restart -> health check -> rollback bila gagal)
+  project set-php N V   Ganti versi PHP proyek lewat pipa apply (backup -> httpd -t -> restart -> rollback bila gagal)
   project enable N      Aktifkan proyek (apply)
   project disable N     Nonaktifkan proyek (apply)
   project remove N      Hapus proyek dari panel (apply; folder proyek tidak dihapus)
   project config N      Tampilkan config Apache yang sedang berlaku untuk proyek
   project warnings N    Tampilkan peringatan proyek (APP_URL, php_value di .htaccess, …)
   project preview N V   Preview diff config bila PHP proyek diganti ke V (tanpa apply)
+  tls init|status|renew|regenerate-leaf|reinit-ca|export-ca|disable
+                        Kelola HTTPS panel (private CA; lihat: panel tls help)
   php list              Daftar versi PHP terdaftar
   php add --path C:\panel\php\8.2   Daftarkan PHP; versi terdeteksi dari php.exe (build TS ditolak)
   php scan              Daftarkan otomatis PHP di folder scan (<root Apache>/php) yang belum terdaftar
@@ -185,6 +187,8 @@ func (c *CLI) Run(args []string) int {
 		return c.runApache(args[1:])
 	case "process":
 		return c.runProcess(args[1:])
+	case "tls":
+		return c.runTLS(args[1:])
 	default:
 		fmt.Fprintf(c.deps.ErrOut, "perintah tidak dikenal: %q\n\n%s", args[0], usage)
 		return 2

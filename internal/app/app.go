@@ -6,11 +6,13 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gojalifs/spanel-plus/internal/buildinfo"
@@ -36,9 +38,17 @@ type Application struct {
 	logDir     string
 	auth       *core.AuthService
 	audit      core.AuditLogger
-	ad         core.Authenticator // nil = directory login unavailable
-	adConfig   core.ADConfig
-	adErr      error // construction/validation error: AD login answers 503, local stays up
+	// ad is the directory authenticator (M5-AD); adErr carries a
+	// construction/validation failure without killing local login.
+	ad       core.Authenticator // nil = directory login unavailable
+	adConfig core.ADConfig
+	adErr    error // construction/validation error: AD login answers 503, local stays up
+	// tlsRenewErr/At carry the last automatic leaf-renew failure for
+	// the TLS status (dashboard banner); guarded because the renew
+	// loop and the API run on different goroutines.
+	tlsRenewMu  sync.Mutex
+	tlsRenewErr string
+	tlsRenewAt  time.Time
 }
 
 // AttachAD wires the directory authenticator (M5-AD). When the
@@ -203,6 +213,8 @@ func (a *Application) DoctorInput() core.DoctorInput {
 		ADDomain:   a.cfg.ADDomain,
 		ADBaseDN:   a.cfg.ADBaseDN,
 		ADGroupDN:  a.cfg.ADGroupDN,
+		TLSDir:     a.cfg.EffectiveTLSDir(),
+		TLSApache:  a.cfg.TLSApache,
 	}
 }
 
@@ -211,7 +223,19 @@ func (a *Application) DoctorInput() core.DoctorInput {
 // announcing a panel that is not actually listening. The M4 runtime
 // (supervisor + scheduler) runs alongside and is stopped first, so no
 // managed process outlives the panel.
+//
+// TLS gate (HTTPS v1): the material check runs FIRST, before the
+// supervisor, scheduler, or listener. Present-but-broken material
+// fails startup loudly (fail-closed: never silently serve HTTP when
+// TLS was configured). Valid material wraps the listener in TLS with
+// a per-handshake GetCertificate, so a renewed leaf is served without
+// a panel restart.
 func (a *Application) Run(ctx context.Context, handler http.Handler) error {
+	tlsDir := a.cfg.EffectiveTLSDir()
+	tlsOn, err := core.DashboardTLSMode(tlsDir)
+	if err != nil {
+		return fmt.Errorf("TLS gagal start: %w", err)
+	}
 	if a.runtime.Supervisor != nil {
 		if err := a.runtime.Supervisor.Start(ctx); err != nil {
 			// Not fatal: the panel must stay reachable to fix the
@@ -228,13 +252,31 @@ func (a *Application) Run(ctx context.Context, handler http.Handler) error {
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", addr, err)
 	}
-	srv := &http.Server{Handler: handler}
+	srv := &http.Server{
+		Handler:  handler,
+		ErrorLog: slog.NewLogLogger(a.logger.Handler(), slog.LevelError),
+	}
+	serveLn := ln
+	if tlsOn {
+		tlsCfg := &tls.Config{
+			MinVersion:     tls.VersionTLS12,
+			GetCertificate: a.getCertificate,
+		}
+		serveLn = tls.NewListener(ln, tlsCfg)
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		a.logger.Info("panel listening", "addr", addr, "version", buildinfo.Version)
-		errCh <- srv.Serve(ln)
+		scheme := "http"
+		if tlsOn {
+			scheme = "https"
+		}
+		a.logger.Info("panel listening", "addr", addr, "scheme", scheme, "version", buildinfo.Version)
+		errCh <- srv.Serve(serveLn)
 	}()
+	// The leaf-renew loop starts with the server, not before it: a
+	// due renew must never delay or block startup.
+	go a.tlsRenewLoop(ctx)
 
 	select {
 	case err := <-errCh:

@@ -17,6 +17,7 @@
       <button type="button" class="nav-item" data-view="project-form">Form Proyek</button>
       <button type="button" class="nav-item" data-view="processes">Proses</button>
       <button type="button" class="nav-item" data-view="logs">Log Panel</button>
+      <button type="button" class="nav-item" data-view="tls">TLS/HTTPS</button>
     </nav>
     <div class="sidebar-foot muted">port {{.Port}} · sesi 10 menit tanpa aktivitas</div>
   </aside>
@@ -59,6 +60,7 @@
             <div class="card stat"><h2>Apache</h2><p id="stat-apache" class="big">…</p><p id="stat-apache-name" class="muted"></p></div>
             <div class="card stat"><h2>Panel</h2><p id="stat-panel" class="big">…</p><p class="muted">port {{.Port}}</p></div>
           </section>
+          <p id="tls-overview-warn" class="warn" hidden></p>
           <section class="card">
             <h2>Doctor</h2>
             <ul id="doctor-list"><li>Memuat…</li></ul>
@@ -169,6 +171,50 @@
             <button type="button" id="btn-panel-log-reload">Muat ulang</button>
             <pre id="panel-log-text" class="diff">Memuat…</pre>
             <p class="muted">Satu baris per aktivitas: request API beserta parameternya, tahap apply, dan login/logout. Password dan token tidak pernah dicatat (tampil sebagai [redacted]). File mentahnya ada di folder logs di sebelah panel.exe, dibagi per hari dan disimpan 90 hari.</p>
+          </section>
+        </section>
+
+        <section class="view" id="view-tls" hidden>
+          <section class="card">
+            <h2>TLS/HTTPS</h2>
+            <p id="tls-banner" class="muted">Memuat…</p>
+            <p class="muted" id="tls-status">Memuat…</p>
+            <p class="muted">Dashboard HTTPS memakai private CA milik panel (bukan Let's Encrypt: tidak ada domain, dan CA publik tidak boleh menerbitkan untuk IP privat). Client percaya lewat instalasi ca.crt sekali — sesudah itu semua leaf, termasuk hasil renew, dipercaya otomatis.</p>
+          </section>
+          <section class="card">
+            <h2>Init / Regenerasi</h2>
+            <form id="tls-form" class="inline-form">
+              <label>IP SAN (pisah koma, kosong = pakai panel.json / deteksi LAN)
+                <input type="text" id="tls-ips" placeholder="192.168.89.21">
+              </label>
+              <label>Nama DNS (pisah koma, opsional)
+                <input type="text" id="tls-names" placeholder="panel.local">
+              </label>
+              <label>Masa berlaku CA (tahun, kosong = 100)
+                <input type="number" id="tls-ca-years" min="1" placeholder="100">
+              </label>
+              <button type="submit">Init TLS (CA + leaf baru)</button>
+              <button type="button" id="tls-regenerate">Regenerate leaf (SAN saat ini)</button>
+            </form>
+            <p class="muted">Init menolak bila CA sudah ada — pakai Reinit di bawah untuk ganti trust anchor. Regenerate memakai IP/Nama di atas bila diisi, kalau kosong memakai SAN yang tersimpan, lalu SAN leaf lama. Sesudah leaf berganti, dashboard tidak perlu restart (hot-swap); Apache di-restart otomatis oleh panel.</p>
+          </section>
+          <section class="card">
+            <h2>Aksi</h2>
+            <button type="button" id="tls-renew">Renew leaf (bila jatuh tempo)</button>
+            <button type="button" id="tls-download-ca">Unduh ca.crt</button>
+            <label><input type="checkbox" id="tls-reinit-confirm"> Saya paham: reinit mengganti trust anchor, semua client harus install ulang ca.crt</label>
+            <button type="button" id="tls-reinit">Reinit CA (butuh centang di atas)</button>
+            <p class="muted" id="tls-action-result"></p>
+          </section>
+          <section class="card">
+            <h2>Install ca.crt di client</h2>
+            <ul>
+              <li><b>Windows GUI:</b> klik ganda ca.crt → Install Certificate → Local Machine → Place in Trusted Root Certification Authorities.</li>
+              <li><b>Windows CLI (admin):</b> <span class="mono">certutil -addstore -f "Root" spanel-ca.crt</span></li>
+              <li><b>Group Policy (domain siws.local):</b> Computer Configuration → Policies → Windows Settings → Security Settings → Public Key Policies → Trusted Root Certification Authorities → Import ca.crt. Berlaku untuk semua PC domain tanpa instal manual.</li>
+              <li><b>Firefox:</b> pakai store sendiri — Settings → Privacy &amp; Security → Certificates → View Certificates → Authorities → Import (centang "Trust this CA to identify websites").</li>
+            </ul>
+            <p class="muted">Yang dibagikan hanya ca.crt (publik). Kunci CA (ca.key) tidak pernah keluar dari server. Backup direktori tls ke vault/offline: restore = salin kembali + restart panel. Bila IP server berubah, pakai Regenerate leaf. Bila port 443 bentrok dengan XAMPP, ubah tls_apache_port di panel.json lalu re-apply.</p>
           </section>
         </section>
       </div>

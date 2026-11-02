@@ -53,7 +53,7 @@ async function api(method, path, body) {
 
 // ---------- sidebar navigation ----------
 
-const views = ['overview', 'php', 'projects', 'project-form', 'processes', 'logs'];
+const views = ['overview', 'php', 'projects', 'project-form', 'processes', 'logs', 'tls'];
 
 function showView(name) {
   for (const v of views) {
@@ -166,6 +166,95 @@ async function loadAll() {
     toast('Gagal memuat data: ' + e.message, false);
   }
   loadDoctor();
+  loadTLS();
+}
+
+// ---------- TLS/HTTPS ----------
+
+function tlsDaysLeft(iso) {
+  if (!iso) return null;
+  return (new Date(iso).getTime() - Date.now()) / 86400000;
+}
+
+function tlsWarnings(st) {
+  const warns = [];
+  if (st.renew_error) warns.push('Auto-renew gagal (' + st.renew_error + ') — periksa log panel, lalu coba Renew manual.');
+  if (st.enabled) {
+    const leaf = tlsDaysLeft(st.leaf_expiry);
+    if (leaf !== null && leaf < 30) warns.push('Leaf TLS kedaluwarsa ' + (st.leaf_expiry || '').slice(0, 10) + ' — renew segera.');
+    const ca = tlsDaysLeft(st.ca_expiry);
+    if (ca !== null && ca < 365) warns.push('CA TLS kedaluwarsa ' + (st.ca_expiry || '').slice(0, 10) + ' — rencanakan reinit-ca (semua client install ulang).');
+  }
+  return warns;
+}
+
+async function loadTLS() {
+  const banner = $('tls-banner');
+  const status = $('tls-status');
+  const warn = $('tls-overview-warn');
+  try {
+    const st = await api('GET', '/api/v1/tls/status');
+    if (!st.enabled) {
+      banner.textContent = 'TLS belum aktif — dashboard masih HTTP. Init di bawah untuk mengaktifkan HTTPS.';
+      banner.className = 'muted';
+      status.textContent = 'Apache HTTPS: ' + (st.tls_apache ? 'akan aktif di port ' + st.apache_port + ' sesudah init + apply' : 'nonaktif (tls_apache=false)') + '.';
+      warn.hidden = true;
+      return;
+    }
+    status.textContent = 'Aktif. CA sampai ' + (st.ca_expiry || '').slice(0, 10) +
+      ' · leaf sampai ' + (st.leaf_expiry || '').slice(0, 10) +
+      ' · fingerprint CA: ' + (st.ca_fingerprint || '') +
+      ' · leaf IP: ' + (st.leaf_ips || []).join(', ') +
+      (st.leaf_dns && st.leaf_dns.length ? ' · leaf DNS: ' + st.leaf_dns.join(', ') : '') +
+      ' · Apache HTTPS: ' + (st.tls_apache ? 'port ' + st.apache_port : 'nonaktif');
+    const warns = tlsWarnings(st);
+    if (warns.length) {
+      banner.textContent = warns.join(' ');
+      banner.className = 'warn';
+      warn.textContent = 'TLS: ' + warns.join(' ');
+      warn.hidden = false;
+    } else {
+      banner.textContent = 'TLS sehat — tidak ada peringatan.';
+      banner.className = 'muted';
+      warn.hidden = true;
+    }
+  } catch (e) {
+    banner.textContent = 'Gagal membaca status TLS: ' + e.message;
+    banner.className = 'fail';
+  }
+}
+
+function tlsSplitList(v) {
+  return v.split(',').map((s) => s.trim()).filter((s) => s !== '');
+}
+
+async function tlsActionResult(res) {
+  let msg = res.changed ? 'Leaf diperbarui sampai ' + (res.leaf_expiry || '').slice(0, 10) + '.' : 'Tidak ada perubahan (renew belum waktunya).';
+  if (res.apache_restarted) msg += ' Apache di-restart.';
+  else if (res.apache_error) msg += ' Apache TIDAK di-restart: ' + res.apache_error;
+  $('tls-action-result').textContent = msg;
+  await loadTLS();
+}
+
+async function downloadCA() {
+  try {
+    const res = await fetch('/api/v1/tls/ca.crt');
+    if (res.status === 401) {
+      showLogin();
+      throw new Error('Sesi habis — login lagi.');
+    }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'spanel-ca.crt';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('ca.crt diunduh — install ke Trusted Root di client.');
+  } catch (e) {
+    toast(e.message, false);
+  }
 }
 
 async function loadDoctor() {
@@ -478,6 +567,61 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.toggle('sidebar-open');
   });
   $('btn-panel-log-reload').addEventListener('click', loadPanelLog);
+
+  $('tls-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    try {
+      const info = await api('POST', '/api/v1/tls/init', {
+        ips: tlsSplitList($('tls-ips').value),
+        names: tlsSplitList($('tls-names').value),
+        ca_years: parseInt($('tls-ca-years').value, 10) || 0,
+      });
+      toast('TLS di-init. Restart service panel agar dashboard jadi HTTPS, lalu install ca.crt di client.' + (info.warning ? ' ' + info.warning : ''));
+      await loadTLS();
+    } catch (e) {
+      toast(e.message, false);
+    }
+  });
+  $('tls-regenerate').addEventListener('click', async () => {
+    try {
+      const res = await api('POST', '/api/v1/tls/regenerate-leaf', {
+        ips: tlsSplitList($('tls-ips').value),
+        names: tlsSplitList($('tls-names').value),
+      });
+      toast('Leaf baru diterbitkan.');
+      await tlsActionResult(res);
+    } catch (e) {
+      toast(e.message, false);
+    }
+  });
+  $('tls-renew').addEventListener('click', async () => {
+    try {
+      const res = await api('POST', '/api/v1/tls/renew', {});
+      await tlsActionResult(res);
+    } catch (e) {
+      toast(e.message, false);
+    }
+  });
+  $('tls-download-ca').addEventListener('click', downloadCA);
+  $('tls-reinit').addEventListener('click', async () => {
+    if (!$('tls-reinit-confirm').checked) {
+      toast('Centang dulu pernyataan reinit — ini mengganti trust anchor.', false);
+      return;
+    }
+    if (!window.confirm('Reinit CA mengganti trust anchor. Semua client harus install ulang ca.crt. Lanjutkan?')) return;
+    try {
+      const res = await api('POST', '/api/v1/tls/reinit-ca', {
+        confirm: true,
+        ips: tlsSplitList($('tls-ips').value),
+        names: tlsSplitList($('tls-names').value),
+        ca_years: parseInt($('tls-ca-years').value, 10) || 0,
+      });
+      toast('CA diganti — semua client HARUS install ulang ca.crt yang baru.');
+      await tlsActionResult(res);
+    } catch (e) {
+      toast(e.message, false);
+    }
+  });
 
   $('php-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();

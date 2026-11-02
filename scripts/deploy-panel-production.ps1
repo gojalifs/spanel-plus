@@ -1055,11 +1055,23 @@ if ($failNames -contains 'panel-port') {
 }
 
 # --- 16. Verifikasi: API panel ----------------------------------------------------------------------
+# Dashboard bisa jadi sudah HTTPS (material TLS aktif): cek http dulu,
+# gagal -> cek https loopback dengan SkipCertificateCheck. Skip hanya
+# untuk loopback ini (bukan verifikasi umum): tujuannya liveness +
+# configured/ad_enabled, bukan validasi sertifikat (itu urusan
+# browser + panel tls status).
 try {
     $st = Invoke-WebRequest -Uri "http://127.0.0.1:$panelPort/api/v1/auth/status" -UseBasicParsing -TimeoutSec 10 |
         Select-Object -ExpandProperty Content | ConvertFrom-Json
+    Info "API panel menjawab via http."
 } catch {
-    Fail "API panel tidak menjawab di http://127.0.0.1:$panelPort/api/v1/auth/status : $($_.Exception.Message)"
+    try {
+        $st = Invoke-WebRequest -Uri "https://127.0.0.1:$panelPort/api/v1/auth/status" -UseBasicParsing -TimeoutSec 10 -SkipCertificateCheck |
+            Select-Object -ExpandProperty Content | ConvertFrom-Json
+        Info "API panel menjawab via https loopback (dashboard sudah TLS-aktif)."
+    } catch {
+        Fail "API panel tidak menjawab di http://127.0.0.1:$panelPort/api/v1/auth/status maupun https loopback : $($_.Exception.Message)"
+    }
 }
 if ($st.configured -ne $true) { Fail "API panel bilang akun admin belum dibuat (configured=false)." }
 $wantAd = ($mode -like "AD*")

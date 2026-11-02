@@ -68,6 +68,14 @@ func (a *api) register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/projects/{name}/processes/{proc}/log", a.processLog)
 	mux.HandleFunc("POST /api/v1/projects/{name}/run", a.runOnce)
 	mux.HandleFunc("POST /api/v1/projects/{name}/schedule-run", a.scheduleRun)
+
+	// TLS/HTTPS (private CA).
+	mux.HandleFunc("GET /api/v1/tls/status", a.tlsStatus)
+	mux.HandleFunc("POST /api/v1/tls/init", a.tlsInit)
+	mux.HandleFunc("POST /api/v1/tls/renew", a.tlsRenew)
+	mux.HandleFunc("POST /api/v1/tls/regenerate-leaf", a.tlsRegenerateLeaf)
+	mux.HandleFunc("POST /api/v1/tls/reinit-ca", a.tlsReinitCA)
+	mux.HandleFunc("GET /api/v1/tls/ca.crt", a.tlsCACert)
 }
 
 func (a *api) processes(w http.ResponseWriter) app.ProcessOps {

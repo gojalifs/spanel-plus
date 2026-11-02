@@ -25,6 +25,36 @@ type ApplyConfig struct {
 	GeneratedDir  string // folder with the generated *.conf files
 	BackupsDir    string // snapshot root (one subfolder per apply)
 	Retention     int    // snapshots kept (Plan F9: 20)
+	// TLS feeds the :443 VirtualHost. TLSDir is the resolved material
+	// dir; TLSApache false means no vhost even when material exists
+	// (dashboard HTTPS only); TLSApachePort zero means 443.
+	TLSDir        string
+	TLSApache     bool
+	TLSApachePort int
+}
+
+// TLSVHostForApply resolves the generator's TLS vhost for one apply:
+// enabled only when Apache TLS is on AND valid material exists.
+// Present-but-broken material fails the apply BEFORE anything is
+// written — a vhost pointing at broken certs would fail httpd -t
+// after the restart anyway, but the early error names TLS directly.
+func (m *ApacheManager) TLSVHostForApply() (TLSVHost, error) {
+	if !m.Cfg.TLSApache {
+		return TLSVHost{}, nil
+	}
+	dir := m.Cfg.TLSDir
+	if dir == "" || !HasTLSMaterial(dir) {
+		return TLSVHost{}, nil
+	}
+	if err := ValidateMaterial(dir); err != nil {
+		return TLSVHost{}, fmt.Errorf("apply dibatalkan: material TLS rusak: %w", err)
+	}
+	_, certPath, keyPath, _ := TLSPaths(dir)
+	port := m.Cfg.TLSApachePort
+	if port == 0 {
+		port = 443
+	}
+	return TLSVHost{Enabled: true, Port: port, CertFile: certPath, KeyFile: keyPath}, nil
 }
 
 // ApplyResult reports a committed apply.
@@ -119,7 +149,11 @@ func (m *ApacheManager) Apply(ctx context.Context, candidate Registry) (ApplyRes
 	if err := candidate.ValidateStructure(); err != nil {
 		return ApplyResult{}, err
 	}
-	generated, err := Generator{}.GenerateAll(candidate)
+	vhost, err := m.TLSVHostForApply()
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	generated, err := Generator{TLS: vhost}.GenerateAll(candidate)
 	if err != nil {
 		return ApplyResult{}, err
 	}

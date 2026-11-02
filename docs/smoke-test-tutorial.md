@@ -351,3 +351,34 @@ persis kalau ada, plus:
 | doctor FAIL `panel-port` padahal panel jalan | Port dipegang service panel sendiri — cek PID-nya `panel.exe` (`netstat -ano \| findstr :8888`); by design (doctor API menampilkan WARN, doctor CLI menampilkan FAIL) |
 | Port Apache dipakai aplikasi lain | Cek `netstat -ano \| findstr :<port>`, stop dulu service itu (IIS/XAMPP/Skype) |
 | Doctor WARN `panel-port` | By design, bukan kegagalan |
+
+## Appendix: verifikasi TLS (setelah aktivasi pertama)
+
+Jalankan di server, saat sepi operator, sesudah backup `panel.exe`
+dan direktori `tls`:
+
+1. `C:\Panel\panel.exe tls status` → CA + leaf expiry tampil,
+   fingerprint CA tercetak. Catat fingerprintnya.
+2. Restart service `SPanelPlus` → dashboard `https://<IP>:8888`
+   terbuka (warning sampai `ca.crt` diinstall).
+3. `C:\Panel\panel.exe tls export-ca spanel-ca.crt`, install ke
+   Trusted Root di PC admin (GUI atau
+   `certutil -addstore -f "Root" spanel-ca.crt`) → warning hilang,
+   gembok tampil, fingerprint di browser = fingerprint langkah 1.
+4. Apply proyek apa saja → `https://<IP>:443/<proyek>` jalan dan
+   menampilkan app (bukan directory listing / source). **Ini
+   membuktikan pewarisan Alias/Directory ke vhost.** Bila HTTPS
+   404 padahal HTTP-nya jalan, laporkan — fallback-nya duplikasi
+   blok ke dalam vhost.
+5. `C:\Panel\panel.exe tls renew` → expiry leaf maju, dashboard
+   tetap jalan tanpa restart panel, Apache restart, HTTPS tetap
+   jalan.
+6. Fail-closed: rename `server.key` → restart `SPanelPlus` →
+   service GAGAL start dengan pesan TLS jelas → kembalikan nama
+   file → service jalan lagi.
+7. `C:\Panel\panel.exe doctor` → cek `tls-material` pass dan
+   (bila TLS Apache aktif) `mod-ssl` pass.
+8. Backup direktori `C:\Panel\data\tls` ke vault/offline.
+
+Lapor balik: output `tls status`, fingerprint CA, hasil langkah
+3–8 (PASS/FAIL + pesan error persis bila ada).
