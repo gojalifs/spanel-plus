@@ -189,6 +189,17 @@ func run() int {
 			application.AttachApachePort(apachePort)
 			handler := httpapi.NewHandler(application, logger)
 			return platform.RunPanel(buildinfo.ServiceName, func(ctx context.Context) error {
+				// Keep the SCM display name on the running binary's
+				// version, so sc qc (and services.msc) shows which
+				// release the service runs. Service-mode only: a
+				// newer binary run by hand must not relabel the
+				// service that still runs the older binary. A
+				// failure here is cosmetic — warn and continue.
+				if platform.IsWindowsService() {
+					if err := platform.SyncServiceDisplayName(); err != nil {
+						logger.Warn("sinkronisasi display name service gagal", "err", err)
+					}
+				}
 				autoRegisterPHP(ctx, phpMgr, logger)
 				return application.Run(ctx, handler)
 			})

@@ -26,3 +26,11 @@ const ServiceName = "SPanelPlus"
 
 // ServiceDisplayName is the Windows Service display name.
 const ServiceDisplayName = "SPanel+ Panel Service"
+
+// VersionedServiceDisplayName is the display name shown in services.msc
+// and sc qc output: the base name plus the running binary's version,
+// so the operator can tell which release the service runs without
+// opening the dashboard.
+func VersionedServiceDisplayName() string {
+	return ServiceDisplayName + " " + Version
+}

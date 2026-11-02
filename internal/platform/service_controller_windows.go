@@ -40,7 +40,7 @@ func (scmServiceController) Install() error {
 		return fmt.Errorf("service %s already exists — uninstall it first", buildinfo.ServiceName)
 	}
 	s, err := m.CreateService(buildinfo.ServiceName, exe, mgr.Config{
-		DisplayName: buildinfo.ServiceDisplayName,
+		DisplayName: buildinfo.VersionedServiceDisplayName(),
 		Description: "SPanel+ admin panel: one Apache, multi-PHP per project path (internal use).",
 		StartType:   mgr.StartAutomatic, // start at boot (M1 criterion)
 	}, "serve")

@@ -15,7 +15,7 @@
 
 ```
 Server Windows (satu mesin)
-├── Service SPanelPlus ("SPanel+ Panel Service", start otomatis saat boot)
+├── Service SPanelPlus ("SPanel+ Panel Service <versi>", start otomatis saat boot)
 │   └── C:\Panel\panel.exe serve  →  UI/API di :8888 (HTTP, semua interface)
 ├── Service apache-spanel (Apache 2.4.69 VS18 + mod_fcgid VS18)
 │   └── C:\m0\Apache24  →  situs proyek di :80 (atau port Apache pilihan)
@@ -112,7 +112,10 @@ langkah-langkah setup yang relevan.
    C:\Panel\panel.exe service install
    C:\Panel\panel.exe service start
    ```
-   Service `SPanelPlus` ber-start otomatis saat boot.
+   Service `SPanelPlus` ber-start otomatis saat boot. Display name-nya
+   memuat versi binary (`SPanel+ Panel Service <versi>`) dan
+   disinkronkan tiap start service, jadi `sc qc SPanelPlus` menampilkan
+   versi yang sedang jalan — tanpa perlu membuka dashboard.
    Instal service Apache dengan nama `apache-spanel`:
    ```
    C:\m0\Apache24\bin\httpd.exe -k install -n apache-spanel
