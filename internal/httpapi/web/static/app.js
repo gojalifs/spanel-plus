@@ -761,7 +761,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ---------- M4: supervisor processes ----------
 
+function renderRunProjects() {
+  const sel = $('run-project');
+  sel.innerHTML = '';
+  for (const p of registry.projects) {
+    const o = el('option', p.name);
+    o.value = p.name;
+    sel.appendChild(o);
+  }
+}
+
 async function loadProcesses() {
+  renderRunProjects();
   const tbody = $('process-table').querySelector('tbody');
   try {
     const data = await api('GET', '/api/v1/processes');
@@ -812,13 +823,6 @@ async function loadProcesses() {
     td.colSpan = 7;
     tr.appendChild(td);
     tbody.appendChild(tr);
-  }
-  const sel = $('run-project');
-  sel.innerHTML = '';
-  for (const p of registry.projects) {
-    const o = el('option', p.name);
-    o.value = p.name;
-    sel.appendChild(o);
   }
 }
 
