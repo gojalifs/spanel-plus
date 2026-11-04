@@ -65,6 +65,10 @@ func (g Generator) globalConfig() string {
 	b.WriteString("    FcgidMaxProcesses 20\n")
 	b.WriteString("    FcgidMaxProcessesPerClass 10\n")
 	b.WriteString("    FcgidMaxRequestsPerProcess 1000\n")
+	// Issue #4: the mod_fcgid default MaxRequestLen is 131072 (128 KB),
+	// so a 136 KB EMC request failed with 500. 16 MB covers large
+	// forms/uploads while staying far below the pre-2.3.6 1 GB default.
+	b.WriteString("    FcgidMaxRequestLen 16777216\n")
 	b.WriteString("    FcgidIOTimeout 120\n")
 	b.WriteString("    FcgidBusyTimeout 300\n")
 	b.WriteString("    FcgidIdleTimeout 120\n")
