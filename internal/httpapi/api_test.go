@@ -84,6 +84,23 @@ type fakeApache struct{ restarted bool }
 func (f *fakeApache) Status() (string, error)          { return "running", nil }
 func (f *fakeApache) Restart() error                   { f.restarted = true; return nil }
 func (f *fakeApache) TestConfig(context.Context) error { return nil }
+func (f *fakeApache) ListConfigFiles() ([]core.ApacheConfigFile, error) {
+	return []core.ApacheConfigFile{{Name: "httpd.conf", Generated: false, Durable: true}}, nil
+}
+func (f *fakeApache) ReadConfigFile(string) (string, error) { return "# httpd.conf\n", nil }
+func (f *fakeApache) SaveConfigFile(context.Context, string, string) (string, error) {
+	return "backup", nil
+}
+func (f *fakeApache) ListApacheModules() ([]core.ApacheModule, error) {
+	return []core.ApacheModule{{Name: "fcgid_module", File: "modules/mod_fcgid.so", Enabled: true, Locked: true}}, nil
+}
+func (f *fakeApache) SetApacheModule(context.Context, string, bool) error { return nil }
+func (f *fakeApache) GetFcgidSettings() (core.FcgidSettings, error) {
+	return core.DefaultFcgidSettings(), nil
+}
+func (f *fakeApache) SetFcgidSettings(context.Context, core.FcgidSettings) (core.ApplyResult, error) {
+	return core.ApplyResult{}, nil
+}
 
 func apiHandler(t *testing.T) (http.Handler, *fakeProjects) {
 	t.Helper()

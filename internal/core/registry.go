@@ -21,10 +21,93 @@ type Registry struct {
 
 // Settings are the registry-level managed-Apache settings.
 type Settings struct {
-	ApacheHome    string `json:"apache_home"`
-	ApacheService string `json:"apache_service"`
-	DocumentRoot  string `json:"document_root"`
-	PanelPort     int    `json:"panel_port"`
+	ApacheHome    string        `json:"apache_home"`
+	ApacheService string        `json:"apache_service"`
+	DocumentRoot  string        `json:"document_root"`
+	PanelPort     int           `json:"panel_port"`
+	Fcgid         FcgidSettings `json:"fcgid,omitempty"`
+}
+
+// FcgidSettings holds the mod_fcgid directives the panel writes into
+// 00-panel-global.conf (Fase 2c). Zero values mean "use the defaults"
+// so registries written before Fase 2c keep generating byte-identical
+// config, and only an explicit edit in the dashboard changes output.
+type FcgidSettings struct {
+	MaxProcesses          int `json:"max_processes,omitempty"`
+	MaxProcessesPerClass  int `json:"max_processes_per_class,omitempty"`
+	MaxRequestsPerProcess int `json:"max_requests_per_process,omitempty"`
+	MaxRequestLen         int `json:"max_request_len,omitempty"`
+	IOTimeout             int `json:"io_timeout,omitempty"`
+	BusyTimeout           int `json:"busy_timeout,omitempty"`
+	IdleTimeout           int `json:"idle_timeout,omitempty"`
+}
+
+// DefaultFcgidSettings is the pre-Fase 2c hardcode, kept as the
+// effective value when a registry stores no explicit fcgid settings.
+// MaxRequestLen 16777216 (16 MB) is the issue #4 fix: the mod_fcgid
+// default 131072 (128 KB) rejected a 136 KB EMC request with 500.
+func DefaultFcgidSettings() FcgidSettings {
+	return FcgidSettings{
+		MaxProcesses:          20,
+		MaxProcessesPerClass:  10,
+		MaxRequestsPerProcess: 1000,
+		MaxRequestLen:         16777216,
+		IOTimeout:             120,
+		BusyTimeout:           300,
+		IdleTimeout:           120,
+	}
+}
+
+// Effective fills every zero field with its default.
+func (s FcgidSettings) Effective() FcgidSettings {
+	def := DefaultFcgidSettings()
+	if s.MaxProcesses == 0 {
+		s.MaxProcesses = def.MaxProcesses
+	}
+	if s.MaxProcessesPerClass == 0 {
+		s.MaxProcessesPerClass = def.MaxProcessesPerClass
+	}
+	if s.MaxRequestsPerProcess == 0 {
+		s.MaxRequestsPerProcess = def.MaxRequestsPerProcess
+	}
+	if s.MaxRequestLen == 0 {
+		s.MaxRequestLen = def.MaxRequestLen
+	}
+	if s.IOTimeout == 0 {
+		s.IOTimeout = def.IOTimeout
+	}
+	if s.BusyTimeout == 0 {
+		s.BusyTimeout = def.BusyTimeout
+	}
+	if s.IdleTimeout == 0 {
+		s.IdleTimeout = def.IdleTimeout
+	}
+	return s
+}
+
+// Validate rejects out-of-range fcgid values before they reach the
+// generator, so a bad dashboard edit fails loudly instead of
+// producing an Apache config that httpd -t must catch later.
+func (s FcgidSettings) Validate() error {
+	eff := s.Effective()
+	if eff.MaxProcesses < 1 || eff.MaxProcesses > 100 {
+		return fmt.Errorf("registry: fcgid.max_processes %d out of range 1-100", eff.MaxProcesses)
+	}
+	if eff.MaxProcessesPerClass < 1 || eff.MaxProcessesPerClass > 100 {
+		return fmt.Errorf("registry: fcgid.max_processes_per_class %d out of range 1-100", eff.MaxProcessesPerClass)
+	}
+	if eff.MaxRequestsPerProcess < 1 || eff.MaxRequestsPerProcess > 100000 {
+		return fmt.Errorf("registry: fcgid.max_requests_per_process %d out of range 1-100000", eff.MaxRequestsPerProcess)
+	}
+	if eff.MaxRequestLen < 131072 || eff.MaxRequestLen > 1073741824 {
+		return fmt.Errorf("registry: fcgid.max_request_len %d out of range 131072-1073741824", eff.MaxRequestLen)
+	}
+	for name, v := range map[string]int{"io_timeout": eff.IOTimeout, "busy_timeout": eff.BusyTimeout, "idle_timeout": eff.IdleTimeout} {
+		if v < 10 || v > 3600 {
+			return fmt.Errorf("registry: fcgid.%s %d out of range 10-3600", name, v)
+		}
+	}
+	return nil
 }
 
 // PHPVersion is one installed PHP build the panel can assign.
@@ -160,6 +243,9 @@ func (r Registry) Marshal() ([]byte, error) {
 func (r Registry) ValidateStructure() error {
 	if r.Settings.PanelPort != 0 && (r.Settings.PanelPort < 1 || r.Settings.PanelPort > 65535) {
 		return fmt.Errorf("registry: settings.panel_port %d out of range", r.Settings.PanelPort)
+	}
+	if err := r.Settings.Fcgid.Validate(); err != nil {
+		return err
 	}
 	phpSeen := map[string]bool{}
 	for _, v := range r.PHPVersions {

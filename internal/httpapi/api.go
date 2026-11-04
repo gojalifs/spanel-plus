@@ -60,6 +60,16 @@ func (a *api) register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/apache/status", a.apacheStatus)
 	mux.HandleFunc("POST /api/v1/apache/restart", a.apacheRestart)
 	mux.HandleFunc("POST /api/v1/apache/test", a.apacheTest)
+	// Fase 2c: Apache settings — config editor, module checklist,
+	// structured fcgid settings. All writes go through the core gate
+	// (backup → httpd -t → restart), never straight to disk.
+	mux.HandleFunc("GET /api/v1/apache/config", a.apacheConfigList)
+	mux.HandleFunc("GET /api/v1/apache/config/{name}", a.apacheConfigRead)
+	mux.HandleFunc("PUT /api/v1/apache/config/{name}", a.apacheConfigSave)
+	mux.HandleFunc("GET /api/v1/apache/modules", a.apacheModules)
+	mux.HandleFunc("POST /api/v1/apache/modules", a.apacheModuleSet)
+	mux.HandleFunc("GET /api/v1/apache/fcgid", a.apacheFcgidGet)
+	mux.HandleFunc("PUT /api/v1/apache/fcgid", a.apacheFcgidSet)
 	// M4 supervisor surface.
 	mux.HandleFunc("GET /api/v1/processes", a.listProcesses)
 	mux.HandleFunc("POST /api/v1/projects/{name}/processes/{proc}/start", a.processStart)
@@ -490,6 +500,118 @@ func (a *api) apacheTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"config": "ok"})
+}
+
+// Fase 2c handlers. Handlers only translate HTTP to core calls; all
+// validation, backup, testing and restart live in the core.
+
+func (a *api) apacheConfigList(w http.ResponseWriter, _ *http.Request) {
+	_, _, apache := a.services(w)
+	if apache == nil {
+		return
+	}
+	files, err := apache.ListConfigFiles()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"files": files})
+}
+
+func (a *api) apacheConfigRead(w http.ResponseWriter, r *http.Request) {
+	_, _, apache := a.services(w)
+	if apache == nil {
+		return
+	}
+	content, err := apache.ReadConfigFile(r.PathValue("name"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"name": r.PathValue("name"), "content": content})
+}
+
+func (a *api) apacheConfigSave(w http.ResponseWriter, r *http.Request) {
+	_, _, apache := a.services(w)
+	if apache == nil {
+		return
+	}
+	var req struct {
+		Content string `json:"content"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	backup, err := apache.SaveConfigFile(r.Context(), r.PathValue("name"), req.Content)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"saved": "ok", "backup": backup})
+}
+
+func (a *api) apacheModules(w http.ResponseWriter, _ *http.Request) {
+	_, _, apache := a.services(w)
+	if apache == nil {
+		return
+	}
+	mods, err := apache.ListApacheModules()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"modules": mods})
+}
+
+func (a *api) apacheModuleSet(w http.ResponseWriter, r *http.Request) {
+	_, _, apache := a.services(w)
+	if apache == nil {
+		return
+	}
+	var req struct {
+		Name    string `json:"name"`
+		Enabled bool   `json:"enabled"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := apache.SetApacheModule(r.Context(), req.Name, req.Enabled); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"saved": "ok"})
+}
+
+func (a *api) apacheFcgidGet(w http.ResponseWriter, _ *http.Request) {
+	_, _, apache := a.services(w)
+	if apache == nil {
+		return
+	}
+	settings, err := apache.GetFcgidSettings()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"fcgid": settings})
+}
+
+func (a *api) apacheFcgidSet(w http.ResponseWriter, r *http.Request) {
+	_, _, apache := a.services(w)
+	if apache == nil {
+		return
+	}
+	var req struct {
+		Fcgid core.FcgidSettings `json:"fcgid"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	res, err := apache.SetFcgidSettings(r.Context(), req.Fcgid)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeApply(w, res, nil, http.StatusOK)
 }
 
 // services returns the attached services, answering 503 when the

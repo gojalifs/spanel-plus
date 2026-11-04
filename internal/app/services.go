@@ -38,6 +38,15 @@ type ApacheOps interface {
 	Status() (string, error)
 	Restart() error
 	TestConfig(ctx context.Context) error
+	// Fase 2c: config files (editor), modules (checklist), and
+	// structured fcgid settings, all through the ApacheManager gate.
+	ListConfigFiles() ([]core.ApacheConfigFile, error)
+	ReadConfigFile(name string) (string, error)
+	SaveConfigFile(ctx context.Context, name, content string) (string, error)
+	ListApacheModules() ([]core.ApacheModule, error)
+	SetApacheModule(ctx context.Context, name string, enabled bool) error
+	GetFcgidSettings() (core.FcgidSettings, error)
+	SetFcgidSettings(ctx context.Context, settings core.FcgidSettings) (core.ApplyResult, error)
 }
 
 // ProcessOps is the supervisor surface for the API (Plan F5).

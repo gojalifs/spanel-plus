@@ -53,7 +53,7 @@ async function api(method, path, body) {
 
 // ---------- sidebar navigation ----------
 
-const views = ['overview', 'php', 'projects', 'project-form', 'processes', 'logs', 'tls'];
+const views = ['overview', 'php', 'projects', 'project-form', 'processes', 'logs', 'tls', 'apache-config'];
 
 function showView(name) {
   for (const v of views) {
@@ -66,6 +66,7 @@ function showView(name) {
   // On mobile the sidebar is off-canvas: close it after choosing.
   document.body.classList.remove('sidebar-open');
   if (name === 'logs') loadPanelLog();
+  if (name === 'apache-config') loadApacheConfig();
 }
 
 // ---------- M5: login admin ----------
@@ -567,6 +568,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.toggle('sidebar-open');
   });
   $('btn-panel-log-reload').addEventListener('click', loadPanelLog);
+  $('fcgid-form').addEventListener('submit', saveFcgid);
+  $('apache-modules-save').addEventListener('click', saveApacheModules);
+  $('apache-config-file').addEventListener('change', loadApacheConfigFile);
+  $('apache-config-load').addEventListener('click', loadApacheConfigFile);
+  $('apache-config-save').addEventListener('click', saveApacheConfigFile);
 
   $('tls-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -916,5 +922,131 @@ async function loadPanelLog() {
     text.textContent = data.lines.length ? data.lines.join('\n') : '(log masih kosong)';
   } catch (err) {
     text.textContent = 'Gagal memuat log: ' + err.message;
+  }
+}
+
+// ---------- Fase 2c: Konfigurasi Apache ----------
+
+let apacheConfigFiles = [];
+let apacheModulesInitial = {};
+
+async function loadApacheConfig() {
+  try {
+    const f = await api('GET', '/api/v1/apache/fcgid');
+    const v = f.fcgid || {};
+    $('fcgid-max-processes').value = v.max_processes || '';
+    $('fcgid-max-processes-per-class').value = v.max_processes_per_class || '';
+    $('fcgid-max-requests-per-process').value = v.max_requests_per_process || '';
+    $('fcgid-max-request-len').value = v.max_request_len || '';
+    $('fcgid-io-timeout').value = v.io_timeout || '';
+    $('fcgid-busy-timeout').value = v.busy_timeout || '';
+    $('fcgid-idle-timeout').value = v.idle_timeout || '';
+    $('fcgid-note').textContent = 'Nilai yang tampil adalah nilai efektif (kosong di registry = default).';
+  } catch (e) {
+    toast('Gagal memuat pengaturan fcgid: ' + e.message, false);
+  }
+  try {
+    const m = await api('GET', '/api/v1/apache/modules');
+    const list = $('apache-modules-list');
+    list.innerHTML = '';
+    apacheModulesInitial = {};
+    for (const mod of m.modules || []) {
+      const row = el('div');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.name = mod.name;
+      cb.checked = mod.enabled;
+      apacheModulesInitial[mod.name] = mod.enabled;
+      // Pola yang sama dengan extension PHP bawaan: yang terkunci
+      // tampil tercentang tapi tidak bisa dimatikan.
+      if (mod.locked && mod.enabled) cb.disabled = true;
+      row.appendChild(cb);
+      row.appendChild(document.createTextNode(' ' + mod.name + ' — ' + mod.file + (mod.locked ? ' · terkunci: ' + (mod.locked_reason || '') : '')));
+      list.appendChild(row);
+    }
+  } catch (e) {
+    toast('Gagal memuat modul Apache: ' + e.message, false);
+  }
+  try {
+    const c = await api('GET', '/api/v1/apache/config');
+    apacheConfigFiles = c.files || [];
+    const sel = $('apache-config-file');
+    sel.innerHTML = '';
+    for (const f of apacheConfigFiles) {
+      const o = el('option', f.name + (f.generated ? ' (generated)' : ''));
+      o.value = f.name;
+      sel.appendChild(o);
+    }
+    await loadApacheConfigFile();
+  } catch (e) {
+    toast('Gagal memuat daftar config: ' + e.message, false);
+  }
+}
+
+async function saveFcgid(ev) {
+  ev.preventDefault();
+  const num = (id) => parseInt($(id).value, 10) || 0;
+  try {
+    await api('PUT', '/api/v1/apache/fcgid', { fcgid: {
+      max_processes: num('fcgid-max-processes'),
+      max_processes_per_class: num('fcgid-max-processes-per-class'),
+      max_requests_per_process: num('fcgid-max-requests-per-process'),
+      max_request_len: num('fcgid-max-request-len'),
+      io_timeout: num('fcgid-io-timeout'),
+      busy_timeout: num('fcgid-busy-timeout'),
+      idle_timeout: num('fcgid-idle-timeout'),
+    }});
+    toast('Pengaturan fcgid disimpan & di-apply (bertahan di apply berikutnya).');
+    await loadApacheConfig();
+  } catch (e) {
+    toast(e.message, false);
+  }
+}
+
+async function saveApacheModules() {
+  const changes = [];
+  for (const cb of document.querySelectorAll('#apache-modules-list input[type=checkbox]')) {
+    if (cb.checked !== apacheModulesInitial[cb.dataset.name]) changes.push({ name: cb.dataset.name, enabled: cb.checked });
+  }
+  if (!changes.length) {
+    toast('Tidak ada perubahan modul.');
+    return;
+  }
+  try {
+    for (const ch of changes) {
+      await api('POST', '/api/v1/apache/modules', ch);
+    }
+    toast('Modul disimpan (tiap perubahan di-backup, dites httpd -t, lalu restart Apache).');
+    await loadApacheConfig();
+  } catch (e) {
+    toast(e.message, false);
+  }
+}
+
+async function loadApacheConfigFile() {
+  const name = $('apache-config-file').value;
+  if (!name) return;
+  const meta = apacheConfigFiles.find((f) => f.name === name);
+  $('apache-config-durability').textContent = meta
+    ? (meta.durable ? 'File ini bertahan di apply berikutnya.' : 'File generated: akan ditimpa apply berikutnya — edit di sini sifatnya darurat, untuk permanen pakai Pengaturan Fcgid di atas.')
+    : '';
+  try {
+    const data = await api('GET', '/api/v1/apache/config/' + encodeURIComponent(name));
+    $('apache-config-text').value = data.content || '';
+    $('apache-config-note').textContent = 'Path: ' + (meta ? meta.path : name);
+  } catch (e) {
+    toast('Gagal memuat config: ' + e.message, false);
+  }
+}
+
+async function saveApacheConfigFile() {
+  const name = $('apache-config-file').value;
+  if (!name) return;
+  if (!window.confirm('Simpan ' + name + '? File lama di-backup, dites httpd -t, dan Apache di-restart otomatis bila tes lolos.')) return;
+  try {
+    const res = await api('PUT', '/api/v1/apache/config/' + encodeURIComponent(name), { content: $('apache-config-text').value });
+    toast('Config disimpan & Apache di-restart. Backup: ' + (res.backup || '-'));
+  } catch (e) {
+    toast(e.message, false);
   }
 }

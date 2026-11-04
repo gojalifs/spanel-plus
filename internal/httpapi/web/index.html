@@ -18,6 +18,7 @@
       <button type="button" class="nav-item" data-view="processes">Proses</button>
       <button type="button" class="nav-item" data-view="logs">Log Panel</button>
       <button type="button" class="nav-item" data-view="tls">TLS/HTTPS</button>
+      <button type="button" class="nav-item" data-view="apache-config">Konfigurasi Apache</button>
     </nav>
     <div class="sidebar-foot muted">port {{.Port}} · sesi 10 menit tanpa aktivitas</div>
   </aside>
@@ -215,6 +216,43 @@
               <li><b>Firefox:</b> pakai store sendiri — Settings → Privacy &amp; Security → Certificates → View Certificates → Authorities → Import (centang "Trust this CA to identify websites").</li>
             </ul>
             <p class="muted">Yang dibagikan hanya ca.crt (publik). Kunci CA (ca.key) tidak pernah keluar dari server. Backup direktori tls ke vault/offline: restore = salin kembali + restart panel. Bila IP server berubah, pakai Regenerate leaf. Bila port 443 bentrok dengan XAMPP, ubah tls_apache_port di panel.json lalu re-apply.</p>
+          </section>
+        </section>
+
+        <section class="view" id="view-apache-config" hidden>
+          <section class="card">
+            <h2>Pengaturan Fcgid</h2>
+            <p class="muted">Nilai ini tersimpan di registry dan ditulis ulang generator ke <code>00-panel-global.conf</code> di setiap apply, jadi bertahan — beda dengan edit file generated langsung yang akan ditimpa apply berikutnya.</p>
+            <form id="fcgid-form" class="inline-form">
+              <label>Maks proses <input id="fcgid-max-processes" type="number" min="1" max="100"></label>
+              <label>Maks proses per class <input id="fcgid-max-processes-per-class" type="number" min="1" max="100"></label>
+              <label>Maks request per proses <input id="fcgid-max-requests-per-process" type="number" min="1" max="100000"></label>
+              <label>Maks panjang request (byte) <input id="fcgid-max-request-len" type="number" min="131072" max="1073741824"></label>
+              <label>IO timeout (detik) <input id="fcgid-io-timeout" type="number" min="10" max="3600"></label>
+              <label>Busy timeout (detik) <input id="fcgid-busy-timeout" type="number" min="10" max="3600"></label>
+              <label>Idle timeout (detik) <input id="fcgid-idle-timeout" type="number" min="10" max="3600"></label>
+              <button type="submit">Simpan &amp; apply</button>
+            </form>
+            <p class="muted" id="fcgid-note"></p>
+          </section>
+          <section class="card">
+            <h2>Modul Apache</h2>
+            <p class="muted">Centang modul yang mau aktif, lalu Simpan. Modul yang dipakai panel (fcgid, dir, alias, dan ssl bila TLS aktif) terkunci dan tidak bisa dimatikan. Setiap simpan di-backup dulu, dites <code>httpd -t</code>, dan hanya di-restart bila tes lolos.</p>
+            <div id="apache-modules-list"></div>
+            <button type="button" id="apache-modules-save">Simpan modul</button>
+            <p class="muted" id="apache-modules-note"></p>
+          </section>
+          <section class="card">
+            <h2>Editor Config</h2>
+            <p class="muted">Hanya file yang diizinkan yang tampil di sini: <code>httpd.conf</code> dan file generated yang live. <code>httpd.conf</code> bertahan di apply berikutnya; file generated akan ditimpa apply berikutnya, jadi edit di sana sifatnya darurat.</p>
+            <label>File <select id="apache-config-file"></select></label>
+            <p class="muted" id="apache-config-durability"></p>
+            <textarea id="apache-config-text" rows="25" cols="100" spellcheck="false" style="width:100%;font-family:monospace"></textarea>
+            <p>
+              <button type="button" id="apache-config-load">Muat ulang</button>
+              <button type="button" id="apache-config-save">Simpan (tes + restart otomatis)</button>
+            </p>
+            <p class="muted" id="apache-config-note"></p>
           </section>
         </section>
       </div>
