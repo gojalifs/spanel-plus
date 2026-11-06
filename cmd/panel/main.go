@@ -115,6 +115,7 @@ func run() int {
 				GeneratedDir:  filepath.Join(wireCfg.DataDir, "generated", "apache"),
 				BackupsDir:    filepath.Join(wireCfg.DataDir, "backups"),
 				Retention:     20,
+				ApacheLogDir:  filepath.Join(wireCfg.DataDir, "logs", "apache"),
 				TLSDir:        wireCfg.EffectiveTLSDir(),
 				TLSApache:     wireCfg.TLSApache,
 				TLSApachePort: wireCfg.EffectiveTLSApachePort(),

@@ -69,10 +69,11 @@ func TestDoctorAllPassWithDiscoveredHome(t *testing.T) {
 	}
 	// M5: httpd-syntax joins the M1 five (home, version, mod-fcgid,
 	// panel-port, data-dir). HTTPS adds tls-material (pass when no
-	// material exists). Service/registry checks appear only when
-	// wired/supplied.
-	if len(rep.Checks) != 7 {
-		t.Fatalf("expected 7 checks, got %d", len(rep.Checks))
+	// material exists). Apache logs add apache-rotatelogs (warn
+	// here: the healthy fixture ships no rotatelogs.exe).
+	// Service/registry checks appear only when wired/supplied.
+	if len(rep.Checks) != 8 {
+		t.Fatalf("expected 8 checks, got %d", len(rep.Checks))
 	}
 	for _, c := range rep.Checks {
 		if c.Name == "httpd-syntax" && c.Status != StatusPass {
@@ -80,6 +81,9 @@ func TestDoctorAllPassWithDiscoveredHome(t *testing.T) {
 		}
 		if c.Name == "tls-material" && c.Status != StatusPass {
 			t.Errorf("tls-material without material status = %s, want pass", c.Status)
+		}
+		if c.Name == "apache-rotatelogs" && c.Status != StatusWarn {
+			t.Errorf("apache-rotatelogs without binary status = %s, want warn", c.Status)
 		}
 	}
 	if !strings.Contains(rep.Checks[1].Detail, "2.4.69") {

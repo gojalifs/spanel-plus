@@ -112,6 +112,7 @@ func (d Doctor) Run(ctx context.Context, in DoctorInput) Report {
 		add(d.checkHTTPdVersion(ctx, home))
 		add(d.checkModFcgid(home))
 		add(d.checkHTTPdSyntax(ctx, home))
+		add(d.checkRotateLogs(home))
 		if in.TLSApache && HasTLSMaterial(in.TLSDir) {
 			add(d.checkModSSL(ctx, home))
 		}
@@ -222,6 +223,18 @@ func (d Doctor) checkModFcgid(home string) Check {
 			fmt.Sprintf("%s not found — multi-PHP via mod_fcgid (Plan D4) cannot work; install the mod_fcgid build matching this Apache (see M0 findings)", mod)}
 	}
 	return Check{"mod-fcgid", StatusPass, mod}
+}
+
+// checkRotateLogs warns when rotatelogs.exe is missing: the panel
+// still writes Apache logs, but to plain files without daily
+// rotation (see apache_logs.go) — a WARN, not a FAIL, because
+// logging must never block serving.
+func (d Doctor) checkRotateLogs(home string) Check {
+	if HasRotateLogs(d.Files, home) {
+		return Check{"apache-rotatelogs", StatusPass, "rotatelogs.exe tersedia — log Apache dirotasi harian"}
+	}
+	return Check{"apache-rotatelogs", StatusWarn,
+		"rotatelogs.exe tidak ditemukan di bin/ Apache — log Apache ditulis ke file tunggal tanpa rotasi harian (tetap jalan, tapi tidak ada retensi 90 hari); pasang rotatelogs dari distribusi Apache untuk mengaktifkan rotasi"}
 }
 
 // checkModSSL gates the :443 vhost the same way mod_fcgid is gated

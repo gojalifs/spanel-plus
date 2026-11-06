@@ -25,6 +25,10 @@ type ApplyConfig struct {
 	GeneratedDir  string // folder with the generated *.conf files
 	BackupsDir    string // snapshot root (one subfolder per apply)
 	Retention     int    // snapshots kept (Plan F9: 20)
+	// ApacheLogDir is where Apache writes access + error logs
+	// (<DataDir>/logs/apache). Empty disables the log directives
+	// and the log view — Apache then keeps its own default logs.
+	ApacheLogDir string
 	// TLS feeds the :443 VirtualHost. TLSDir is the resolved material
 	// dir; TLSApache false means no vhost even when material exists
 	// (dashboard HTTPS only); TLSApachePort zero means 443.
@@ -153,7 +157,8 @@ func (m *ApacheManager) Apply(ctx context.Context, candidate Registry) (ApplyRes
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	generated, err := Generator{TLS: vhost}.GenerateAll(candidate)
+	logCfg := m.ApacheLogConfigForApply()
+	generated, err := Generator{TLS: vhost, ApacheLogs: logCfg}.GenerateAll(candidate)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -183,6 +188,14 @@ func (m *ApacheManager) Apply(ctx context.Context, candidate Registry) (ApplyRes
 		return ApplyResult{}, fmt.Errorf("apply failed at %s: %v — rolled back, previous config is live again", stage, cause)
 	}
 
+	// rotatelogs does not create its target dir: make sure it
+	// exists before httpd -t / restart, or Apache fails to open
+	// the log and the apply rolls back for a logging reason.
+	if logCfg.Dir != "" {
+		if err := m.Files.MkdirAll(m.Cfg.ApacheLogDir); err != nil {
+			return ApplyResult{}, fmt.Errorf("apply aborted before any change (create apache log dir): %w", err)
+		}
+	}
 	if err := m.writeGenerated(generated); err != nil {
 		return fail("write generated config", err)
 	}
@@ -205,6 +218,9 @@ func (m *ApacheManager) Apply(ctx context.Context, candidate Registry) (ApplyRes
 		return fail("commit registry", err)
 	}
 	m.pruneBackups()
+	// Best effort: old dated Apache logs (90+ days) go now, while
+	// the apply already succeeded — pruning never fails an apply.
+	PruneApacheLogs(m.Files, m.Cfg.ApacheLogDir, ApacheLogRetentionDays)
 
 	m.logInfo("apply committed", "files", files, "backup", snapshot.dir)
 	return ApplyResult{BackupDir: snapshot.dir, FilesWritten: files}, nil

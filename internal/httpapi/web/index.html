@@ -1,374 +1,290 @@
 <!DOCTYPE html>
 <html lang="id">
-
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.Name}} — Admin Panel</title>
-  <link rel="stylesheet" href="/static/style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Name}} — Admin Panel</title>
+<link rel="stylesheet" href="/static/style.css">
 </head>
-
 <body>
-  <div id="app-layout">
-    <aside id="sidebar" aria-label="Navigasi utama" hidden>
-      <div class="brand">SPanel+ <span class="badge">v{{.Version}}</span></div>
-      <nav class="nav" aria-label="Bagian panel">
-        <div class="nav-group">
-          <span class="nav-label">OPERASIONAL</span>
-          <button type="button" class="nav-item active" data-view="overview" aria-current="page">Ringkasan</button>
-          <button type="button" class="nav-item" data-view="projects">Proyek</button>
-          <button type="button" class="nav-item" data-view="processes">Proses</button>
-        </div>
-        <div class="nav-group">
-          <span class="nav-label">RUNTIME</span>
-          <button type="button" class="nav-item" data-view="php">Versi PHP</button>
-          <button type="button" class="nav-item" data-view="apache-config">Konfigurasi Apache</button>
-        </div>
-        <div class="nav-group">
-          <span class="nav-label">KEAMANAN &amp; AUDIT</span>
-          <button type="button" class="nav-item" data-view="tls">TLS/HTTPS</button>
-          <button type="button" class="nav-item" data-view="logs">Log Panel</button>
-        </div>
-      </nav>
-      <div class="sidebar-foot muted">port {{.Port}} · sesi 10 menit tanpa aktivitas</div>
-    </aside>
-    <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Tutup navigasi" hidden></button>
+<div id="app-layout">
+  <aside id="sidebar" hidden>
+    <div class="brand">SPanel+ <span class="badge">v{{.Version}}</span></div>
+    <nav class="nav">
+      <button type="button" class="nav-item active" data-view="overview">Ringkasan</button>
+      <button type="button" class="nav-item" data-view="php">Versi PHP</button>
+      <button type="button" class="nav-item" data-view="projects">Proyek</button>
+      <button type="button" class="nav-item" data-view="project-form">Form Proyek</button>
+      <button type="button" class="nav-item" data-view="processes">Proses</button>
+      <button type="button" class="nav-item" data-view="logs">Log Panel</button>
+      <button type="button" class="nav-item" data-view="apache-logs">Log Apache</button>
+      <button type="button" class="nav-item" data-view="tls">TLS/HTTPS</button>
+      <button type="button" class="nav-item" data-view="apache-config">Konfigurasi Apache</button>
+    </nav>
+    <div class="sidebar-foot muted">port {{.Port}} · sesi 10 menit tanpa aktivitas</div>
+  </aside>
 
-    <div id="main-col">
-      <header>
-        <button id="btn-sidebar-toggle" type="button" aria-label="Buka navigasi" aria-controls="sidebar"
-          aria-expanded="false">☰</button>
-        <h1>{{.Name}}</h1>
-        <span id="apache-chip" class="badge">Apache: …</span>
-        <span class="header-actions">
-          <button id="btn-apache-restart" type="button">Restart Apache</button>
-          <button id="btn-apache-test" type="button">Tes config</button>
-          <button id="btn-logout" type="button" hidden>Logout</button>
-        </span>
-      </header>
+  <div id="main-col">
+    <header>
+      <button id="btn-sidebar-toggle" type="button" aria-label="Menu">☰</button>
+      <h1>{{.Name}}</h1>
+      <span id="apache-chip" class="badge">Apache: …</span>
+      <span class="header-actions">
+        <button id="btn-apache-restart" type="button">Restart Apache</button>
+        <button id="btn-apache-test" type="button">Tes config</button>
+        <button id="btn-logout" type="button" hidden>Logout</button>
+      </span>
+    </header>
 
-      <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <div id="toast" class="toast" hidden></div>
 
-      <main>
-        <section class="card" id="login-card" hidden>
-          <h2>Login</h2>
-          <p id="login-hint" class="muted">Panel ini hanya untuk admin. Sesi berakhir sesudah 10 menit tanpa aktivitas.
-          </p>
-          <div id="login-modes">
-            <button type="button" id="login-mode-local" class="active">Akun panel</button>
-            <button type="button" id="login-mode-ad">Akun AD</button>
-          </div>
-          <form id="login-form" class="inline-form">
-            <input id="login-username" type="text" placeholder="Username AD" size="30" autocomplete="username" hidden>
-            <input id="login-password" type="password" placeholder="Password admin" size="30" required
-              autocomplete="current-password">
-            <button type="submit">Login</button>
-          </form>
-          <p class="muted">Pertama kali? Di server, jalankan: <code>panel admin set-password</code> — lalu login di
-            sini.</p>
+    <main>
+      <section class="card" id="login-card" hidden>
+        <h2>Login</h2>
+        <p id="login-hint" class="muted">Panel ini hanya untuk admin. Sesi berakhir sesudah 10 menit tanpa aktivitas.</p>
+        <div id="login-modes">
+          <button type="button" id="login-mode-local" class="active">Akun panel</button>
+          <button type="button" id="login-mode-ad">Akun AD</button>
+        </div>
+        <form id="login-form" class="inline-form">
+          <input id="login-username" type="text" placeholder="Username AD" size="30" autocomplete="username" hidden>
+          <input id="login-password" type="password" placeholder="Password admin" size="30" required autocomplete="current-password">
+          <button type="submit">Login</button>
+        </form>
+        <p class="muted">Pertama kali? Di server, jalankan: <code>panel admin set-password</code> — lalu login di sini.</p>
+      </section>
+
+      <div id="dashboard">
+        <section class="view" id="view-overview">
+          <section class="cards-row">
+            <div class="card stat"><h2>Proyek aktif</h2><p id="stat-projects" class="big">…</p></div>
+            <div class="card stat"><h2>Versi PHP</h2><p id="stat-php" class="big">…</p></div>
+            <div class="card stat"><h2>Apache</h2><p id="stat-apache" class="big">…</p><p id="stat-apache-name" class="muted"></p></div>
+            <div class="card stat"><h2>Panel</h2><p id="stat-panel" class="big">…</p><p class="muted">port {{.Port}}</p></div>
+          </section>
+          <p id="tls-overview-warn" class="warn" hidden></p>
+          <section class="card">
+            <h2>Doctor</h2>
+            <ul id="doctor-list"><li>Memuat…</li></ul>
+          </section>
         </section>
 
-        <div id="dashboard">
-          <section class="view" id="view-overview">
-            <section class="cards-row">
-              <div class="card stat">
-                <h2>Proyek aktif</h2>
-                <p id="stat-projects" class="big">…</p>
-              </div>
-              <div class="card stat">
-                <h2>Versi PHP</h2>
-                <p id="stat-php" class="big">…</p>
-              </div>
-              <div class="card stat">
-                <h2>Apache</h2>
-                <p id="stat-apache" class="big">…</p>
-                <p id="stat-apache-name" class="muted"></p>
-              </div>
-              <div class="card stat">
-                <h2>Panel</h2>
-                <p id="stat-panel" class="big">…</p>
-                <p class="muted">port {{.Port}}</p>
-              </div>
-            </section>
-            <p id="tls-overview-warn" class="warn" hidden></p>
-            <section class="card">
-              <h2>Doctor</h2>
-              <ul id="doctor-list">
-                <li>Memuat…</li>
-              </ul>
-            </section>
+        <section class="view" id="view-php" hidden>
+          <section class="card">
+            <h2>Versi PHP</h2>
+            <table id="php-table">
+              <thead><tr><th>Versi</th><th>Folder</th><th></th></tr></thead>
+              <tbody><tr><td colspan="3" class="muted">Memuat…</td></tr></tbody>
+            </table>
+            <form id="php-form" class="inline-form">
+              <input id="php-path" type="text" placeholder="Folder PHP, mis. C:\php\8.3" size="34" required>
+              <button type="submit">Daftarkan versi PHP</button>
+              <button id="php-scan" type="button">Pindai folder PHP</button>
+              <span class="muted">Versi terdeteksi otomatis dari <code>php.exe -v</code>; build TS ditolak (fcgid butuh NTS). Pindai mendaftarkan otomatis PHP di folder <code>&lt;root Apache&gt;/php</code> yang belum terdaftar.</span>
+            </form>
+            <div id="php-modules" hidden>
+              <h3>Extension (<span id="php-modules-title"></span>)</h3>
+              <p class="muted">Centang extension yang mau aktif, lalu Simpan. Perubahan hanya berlaku untuk versi PHP ini (semua proyek yang memakainya ikut berubah). php.ini di-backup dulu sebelum ditulis; kalau extension gagal termuat, php.ini dikembalikan.</p>
+              <div id="php-ext-list"></div>
+              <button id="php-ext-save" type="button">Simpan extension</button>
+              <p id="php-ext-note" class="muted"></p>
+            </div>
           </section>
+        </section>
 
-          <section class="view" id="view-php" hidden>
-            <section class="card">
-              <h2>Versi PHP</h2>
-              <table id="php-table">
-                <thead>
-                  <tr>
-                    <th>Versi</th>
-                    <th>Folder</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td colspan="3" class="muted">Memuat…</td>
-                  </tr>
-                </tbody>
-              </table>
-              <form id="php-form" class="inline-form">
-                <input id="php-path" type="text" placeholder="Folder PHP, mis. C:\php\8.3" size="34" required>
-                <button type="submit">Daftarkan versi PHP</button>
-                <button id="php-scan" type="button">Pindai folder PHP</button>
-                <span class="muted">Versi terdeteksi otomatis dari <code>php.exe -v</code>; build TS ditolak (fcgid
-                  butuh NTS). Pindai mendaftarkan otomatis PHP di folder <code>&lt;root Apache&gt;/php</code> yang belum
-                  terdaftar.</span>
-              </form>
-              <div id="php-modules" hidden>
-                <h3>Extension (<span id="php-modules-title"></span>)</h3>
-                <p class="muted">Centang extension yang mau aktif, lalu Simpan. Perubahan hanya berlaku untuk versi PHP
-                  ini (semua proyek yang memakainya ikut berubah). php.ini di-backup dulu sebelum ditulis; kalau
-                  extension gagal termuat, php.ini dikembalikan.</p>
-                <div id="php-ext-list"></div>
-                <button id="php-ext-save" type="button">Simpan extension</button>
-                <p id="php-ext-note" class="muted"></p>
-              </div>
-            </section>
+        <section class="view" id="view-projects" hidden>
+          <section class="card">
+            <h2>Proyek</h2>
+            <table id="project-table">
+              <thead><tr>
+                <th>Nama</th><th>URL</th><th>Tipe</th><th>PHP</th><th>Aktif</th><th>Peringatan</th><th></th>
+              </tr></thead>
+              <tbody><tr><td colspan="7" class="muted">Memuat…</td></tr></tbody>
+            </table>
+            <div id="diff-panel" hidden>
+              <h3>Preview perubahan config — <span id="diff-title"></span></h3>
+              <pre id="diff-body" class="diff"></pre>
+              <button id="diff-apply" type="button">Apply perubahan ini</button>
+              <button id="diff-cancel" type="button">Batal</button>
+            </div>
           </section>
+        </section>
 
-          <section class="view" id="view-projects" hidden>
-            <section class="card">
-              <div class="section-heading">
-                <div>
-                  <p class="eyebrow">OPERASIONAL / HOSTING</p>
-                  <h2>Proyek</h2>
-                </div>
-                <button type="button" id="btn-project-create" class="primary-action">+ Tambah proyek</button>
-              </div>
-              <table id="project-table">
-                <thead>
-                  <tr>
-                    <th>Nama</th>
-                    <th>URL</th>
-                    <th>Tipe</th>
-                    <th>PHP</th>
-                    <th>Aktif</th>
-                    <th>Peringatan</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td colspan="7" class="muted">Memuat…</td>
-                  </tr>
-                </tbody>
-              </table>
-              <div id="diff-panel" hidden>
-                <h3>Preview perubahan config — <span id="diff-title"></span></h3>
-                <pre id="diff-body" class="diff"></pre>
-                <button id="diff-apply" type="button">Apply perubahan ini</button>
-                <button id="diff-cancel" type="button">Batal</button>
-              </div>
-            </section>
-          </section>
-
-          <section class="view" id="view-project-form" hidden>
-            <section class="card">
-              <h2 id="project-form-title">Tambah proyek</h2>
-              <form id="project-form">
-                <div class="grid">
-                  <label>Nama <input id="pf-name" required pattern="[a-z][a-z0-9-]*" placeholder="wh-system"></label>
-                  <label>URL path <input id="pf-url" required placeholder="/wh-system"></label>
-                  <label>Folder proyek <input id="pf-path" required placeholder="C:\xampp\htdocs\wh-system"></label>
-                  <label>Tipe
-                    <select id="pf-type">
-                      <option value="laravel">Laravel</option>
-                      <option value="ci4">CodeIgniter 4</option>
-                      <option value="php-native">PHP native</option>
-                      <option value="static">Static</option>
-                    </select>
-                  </label>
-                  <label>Subfolder publik <input id="pf-public"
-                      placeholder="public (Laravel/CI4) / dist (static) / kosong"></label>
-                  <label>Versi PHP <select id="pf-php"></select></label>
-                  <label class="check"><input id="pf-enabled" type="checkbox" checked> Aktif</label>
-                </div>
-                <h3>Proses CLI proyek ini</h3>
-                <div id="pf-processes"></div>
-                <p>
-                  <button type="button" id="pf-proc-add">+ Proses</button>
-                  <button type="button" id="pf-proc-queue">Template: queue Laravel</button>
-                  <button type="button" id="pf-proc-sched">Template: scheduler Laravel</button>
-                </p>
-                <button type="submit" id="pf-submit">Tambah &amp; apply</button>
-                <button type="button" id="pf-reset">Reset form</button>
-              </form>
-            </section>
-          </section>
-
-          <section class="view" id="view-processes" hidden>
-            <section class="card">
-              <h2>Proses CLI (Supervisor)</h2>
-              <table id="process-table">
-                <thead>
-                  <tr>
-                    <th>Proyek</th>
-                    <th>Nama</th>
-                    <th>Perintah</th>
-                    <th>Status</th>
-                    <th>PID</th>
-                    <th>Restart</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td colspan="7" class="muted">Memuat…</td>
-                  </tr>
-                </tbody>
-              </table>
-              <form id="run-form" class="inline-form">
-                <select id="run-project"></select>
-                <input id="run-command" type="text" placeholder="Perintah sekali jalan, mis. artisan migrate:status"
-                  size="40" required>
-                <button type="submit">Jalankan</button>
-                <span class="muted">Memakai php.exe versi proyek untuk perintah artisan/*.php.</span>
-              </form>
-              <pre id="run-output" class="diff" hidden></pre>
-              <div id="log-panel" hidden>
-                <h3>Log — <span id="log-title"></span></h3>
-                <pre id="log-body" class="diff"></pre>
-                <button id="log-close" type="button">Tutup log</button>
-              </div>
-            </section>
-          </section>
-          <section class="view" id="view-logs" hidden>
-            <section class="card">
-              <h2>Log Panel</h2>
-              <p class="muted" id="panel-log-path">Memuat…</p>
-              <button type="button" id="btn-panel-log-reload">Muat ulang</button>
-              <pre id="panel-log-text" class="diff">Memuat…</pre>
-              <p class="muted">Satu baris per aktivitas: request API beserta parameternya, tahap apply, dan
-                login/logout. Password dan token tidak pernah dicatat (tampil sebagai [redacted]). File mentahnya ada di
-                folder logs di sebelah panel.exe, dibagi per hari dan disimpan 90 hari.</p>
-            </section>
-          </section>
-
-          <section class="view" id="view-tls" hidden>
-            <section class="card">
-              <h2>TLS/HTTPS</h2>
-              <p id="tls-banner" class="muted">Memuat…</p>
-              <p class="muted" id="tls-status">Memuat…</p>
-              <p class="muted">Dashboard HTTPS memakai private CA milik panel (bukan Let's Encrypt: tidak ada domain,
-                dan CA publik tidak boleh menerbitkan untuk IP privat). Client percaya lewat instalasi ca.crt sekali —
-                sesudah itu semua leaf, termasuk hasil renew, dipercaya otomatis.</p>
-            </section>
-            <section class="card">
-              <h2>Init / Regenerasi</h2>
-              <form id="tls-form" class="inline-form">
-                <label>IP SAN (pisah koma, kosong = pakai panel.json / deteksi LAN)
-                  <input type="text" id="tls-ips" placeholder="192.168.89.21">
+        <section class="view" id="view-project-form" hidden>
+          <section class="card">
+            <h2 id="project-form-title">Tambah proyek</h2>
+            <form id="project-form">
+              <div class="grid">
+                <label>Nama <input id="pf-name" required pattern="[a-z][a-z0-9-]*" placeholder="wh-system"></label>
+                <label>URL path <input id="pf-url" required placeholder="/wh-system"></label>
+                <label>Folder proyek <input id="pf-path" required placeholder="C:\xampp\htdocs\wh-system"></label>
+                <label>Tipe
+                  <select id="pf-type">
+                    <option value="laravel">Laravel</option>
+                    <option value="ci4">CodeIgniter 4</option>
+                    <option value="php-native">PHP native</option>
+                    <option value="static">Static</option>
+                  </select>
                 </label>
-                <label>Nama DNS (pisah koma, opsional)
-                  <input type="text" id="tls-names" placeholder="panel.local">
-                </label>
-                <label>Masa berlaku CA (tahun, kosong = 100)
-                  <input type="number" id="tls-ca-years" min="1" placeholder="100">
-                </label>
-                <button type="submit">Init TLS (CA + leaf baru)</button>
-                <button type="button" id="tls-regenerate">Regenerate leaf (SAN saat ini)</button>
-              </form>
-              <p class="muted">Init menolak bila CA sudah ada — pakai Reinit di bawah untuk ganti trust anchor.
-                Regenerate memakai IP/Nama di atas bila diisi, kalau kosong memakai SAN yang tersimpan, lalu SAN leaf
-                lama. Sesudah leaf berganti, dashboard tidak perlu restart (hot-swap); Apache di-restart otomatis oleh
-                panel.</p>
-            </section>
-            <section class="card">
-              <h2>Aksi</h2>
-              <button type="button" id="tls-renew">Renew leaf (bila jatuh tempo)</button>
-              <button type="button" id="tls-download-ca">Unduh ca.crt</button>
-              <label><input type="checkbox" id="tls-reinit-confirm"> Saya paham: reinit mengganti trust anchor, semua
-                client harus install ulang ca.crt</label>
-              <button type="button" id="tls-reinit">Reinit CA (butuh centang di atas)</button>
-              <p class="muted" id="tls-action-result"></p>
-            </section>
-            <section class="card">
-              <h2>Install ca.crt di client</h2>
-              <ul>
-                <li><b>Windows GUI:</b> klik ganda ca.crt → Install Certificate → Local Machine → Place in Trusted Root
-                  Certification Authorities.</li>
-                <li><b>Windows CLI (admin):</b> <span class="mono">certutil -addstore -f "Root" spanel-ca.crt</span>
-                </li>
-                <li><b>Group Policy (domain siws.local):</b> Computer Configuration → Policies → Windows Settings →
-                  Security Settings → Public Key Policies → Trusted Root Certification Authorities → Import ca.crt.
-                  Berlaku untuk semua PC domain tanpa instal manual.</li>
-                <li><b>Firefox:</b> pakai store sendiri — Settings → Privacy &amp; Security → Certificates → View
-                  Certificates → Authorities → Import (centang "Trust this CA to identify websites").</li>
-              </ul>
-              <p class="muted">Yang dibagikan hanya ca.crt (publik). Kunci CA (ca.key) tidak pernah keluar dari server.
-                Backup direktori tls ke vault/offline: restore = salin kembali + restart panel. Bila IP server berubah,
-                pakai Regenerate leaf. Bila port 443 bentrok dengan XAMPP, ubah tls_apache_port di panel.json lalu
-                re-apply.</p>
-            </section>
-          </section>
-
-          <section class="view" id="view-apache-config" hidden>
-            <section class="card">
-              <h2>Pengaturan Fcgid</h2>
-              <p class="muted">Nilai ini tersimpan di registry dan ditulis ulang generator ke
-                <code>00-panel-global.conf</code> di setiap apply, jadi bertahan — beda dengan edit file generated
-                langsung yang akan ditimpa apply berikutnya.</p>
-              <form id="fcgid-form" class="inline-form">
-                <label>Maks proses <input id="fcgid-max-processes" type="number" min="1" max="100"></label>
-                <label>Maks proses per class <input id="fcgid-max-processes-per-class" type="number" min="1"
-                    max="100"></label>
-                <label>Maks request per proses <input id="fcgid-max-requests-per-process" type="number" min="1"
-                    max="100000"></label>
-                <label>Maks panjang request (byte) <input id="fcgid-max-request-len" type="number" min="131072"
-                    max="1073741824"></label>
-                <label>IO timeout (detik) <input id="fcgid-io-timeout" type="number" min="10" max="3600"></label>
-                <label>Busy timeout (detik) <input id="fcgid-busy-timeout" type="number" min="10" max="3600"></label>
-                <label>Idle timeout (detik) <input id="fcgid-idle-timeout" type="number" min="10" max="3600"></label>
-                <button type="submit">Simpan &amp; apply</button>
-              </form>
-              <p class="muted" id="fcgid-note"></p>
-            </section>
-            <section class="card">
-              <h2>Modul Apache</h2>
-              <p class="muted">Centang modul yang mau aktif, lalu Simpan. Modul yang dipakai panel (fcgid, dir, alias,
-                dan ssl bila TLS aktif) terkunci dan tidak bisa dimatikan. Setiap simpan di-backup dulu, dites
-                <code>httpd -t</code>, dan hanya di-restart bila tes lolos.</p>
-              <div id="apache-modules-list"></div>
-              <button type="button" id="apache-modules-save">Simpan modul</button>
-              <p class="muted" id="apache-modules-note"></p>
-            </section>
-            <section class="card">
-              <h2>Editor Config</h2>
-              <p class="muted">Hanya file yang diizinkan yang tampil di sini: <code>httpd.conf</code> dan file generated
-                yang live. <code>httpd.conf</code> bertahan di apply berikutnya; file generated akan ditimpa apply
-                berikutnya, jadi edit di sana sifatnya darurat.</p>
-              <label>File <select id="apache-config-file"></select></label>
-              <p class="muted" id="apache-config-durability"></p>
-              <textarea id="apache-config-text" rows="25" cols="100" spellcheck="false"
-                style="width:100%;font-family:monospace"></textarea>
+                <label>Subfolder publik <input id="pf-public" placeholder="public (Laravel/CI4) / dist (static) / kosong"></label>
+                <label>Versi PHP <select id="pf-php"></select></label>
+                <label class="check"><input id="pf-enabled" type="checkbox" checked> Aktif</label>
+              </div>
+              <h3>Proses CLI proyek ini</h3>
+              <div id="pf-processes"></div>
               <p>
-                <button type="button" id="apache-config-load">Muat ulang</button>
-                <button type="button" id="apache-config-save">Simpan (tes + restart otomatis)</button>
+                <button type="button" id="pf-proc-add">+ Proses</button>
+                <button type="button" id="pf-proc-queue">Template: queue Laravel</button>
+                <button type="button" id="pf-proc-sched">Template: scheduler Laravel</button>
               </p>
-              <p class="muted" id="apache-config-note"></p>
-            </section>
+              <button type="submit" id="pf-submit">Tambah &amp; apply</button>
+              <button type="button" id="pf-reset">Reset form</button>
+            </form>
           </section>
-        </div>
-      </main>
-    </div>
-  </div>
+        </section>
 
-  <div id="loading-overlay" hidden>
-    <div class="spinner" role="status" aria-label="Memuat"></div>
-    <p>Memuat…</p>
-  </div>
+        <section class="view" id="view-processes" hidden>
+          <section class="card">
+            <h2>Proses CLI (Supervisor)</h2>
+            <table id="process-table">
+              <thead><tr>
+                <th>Proyek</th><th>Nama</th><th>Perintah</th><th>Status</th><th>PID</th><th>Restart</th><th></th>
+              </tr></thead>
+              <tbody><tr><td colspan="7" class="muted">Memuat…</td></tr></tbody>
+            </table>
+            <form id="run-form" class="inline-form">
+              <select id="run-project"></select>
+              <input id="run-command" type="text" placeholder="Perintah sekali jalan, mis. artisan migrate:status" size="40" required>
+              <button type="submit">Jalankan</button>
+              <span class="muted">Memakai php.exe versi proyek untuk perintah artisan/*.php.</span>
+            </form>
+            <pre id="run-output" class="diff" hidden></pre>
+            <div id="log-panel" hidden>
+              <h3>Log — <span id="log-title"></span></h3>
+              <pre id="log-body" class="diff"></pre>
+              <button id="log-close" type="button">Tutup log</button>
+            </div>
+          </section>
+        </section>
+        <section class="view" id="view-logs" hidden>
+          <section class="card">
+            <h2>Log Panel</h2>
+            <p class="muted" id="panel-log-path">Memuat…</p>
+            <button type="button" id="btn-panel-log-reload">Muat ulang</button>
+            <pre id="panel-log-text" class="diff">Memuat…</pre>
+            <p class="muted">Satu baris per aktivitas: request API beserta parameternya, tahap apply, dan login/logout. Password dan token tidak pernah dicatat (tampil sebagai [redacted]). File mentahnya ada di folder logs di sebelah panel.exe, dibagi per hari dan disimpan 90 hari.</p>
+          </section>
+        </section>
+        <section class="view" id="view-apache-logs" hidden>
+          <section class="card">
+            <h2>Log Apache</h2>
+            <p class="muted">Access log (semua request yang masuk ke Apache) dan error log (peringatan &amp; error Apache/PHP-FCGI). File dirotasi per hari dan disimpan maksimal 90 hari (3 bulan); file lebih lama dihapus otomatis tiap apply dan tiap kali daftar ini dibuka.</p>
+            <p>
+              <label>Jenis
+                <select id="apache-log-kind">
+                  <option value="access">Access</option>
+                  <option value="error">Error</option>
+                </select>
+              </label>
+              <label>Tanggal <select id="apache-log-date"></select></label>
+              <button type="button" id="btn-apache-log-reload">Muat ulang</button>
+            </p>
+            <p class="muted" id="apache-log-path">Memuat…</p>
+            <pre id="apache-log-text" class="diff">Memuat…</pre>
+            <p class="muted" id="apache-log-note"></p>
+          </section>
+        </section>
 
-  <script src="/static/app.js"></script>
+        <section class="view" id="view-tls" hidden>
+          <section class="card">
+            <h2>TLS/HTTPS</h2>
+            <p id="tls-banner" class="muted">Memuat…</p>
+            <p class="muted" id="tls-status">Memuat…</p>
+            <p class="muted">Dashboard HTTPS memakai private CA milik panel (bukan Let's Encrypt: tidak ada domain, dan CA publik tidak boleh menerbitkan untuk IP privat). Client percaya lewat instalasi ca.crt sekali — sesudah itu semua leaf, termasuk hasil renew, dipercaya otomatis.</p>
+          </section>
+          <section class="card">
+            <h2>Init / Regenerasi</h2>
+            <form id="tls-form" class="inline-form">
+              <label>IP SAN (pisah koma, kosong = pakai panel.json / deteksi LAN)
+                <input type="text" id="tls-ips" placeholder="192.168.89.21">
+              </label>
+              <label>Nama DNS (pisah koma, opsional)
+                <input type="text" id="tls-names" placeholder="panel.local">
+              </label>
+              <label>Masa berlaku CA (tahun, kosong = 100)
+                <input type="number" id="tls-ca-years" min="1" placeholder="100">
+              </label>
+              <button type="submit">Init TLS (CA + leaf baru)</button>
+              <button type="button" id="tls-regenerate">Regenerate leaf (SAN saat ini)</button>
+            </form>
+            <p class="muted">Init menolak bila CA sudah ada — pakai Reinit di bawah untuk ganti trust anchor. Regenerate memakai IP/Nama di atas bila diisi, kalau kosong memakai SAN yang tersimpan, lalu SAN leaf lama. Sesudah leaf berganti, dashboard tidak perlu restart (hot-swap); Apache di-restart otomatis oleh panel.</p>
+          </section>
+          <section class="card">
+            <h2>Aksi</h2>
+            <button type="button" id="tls-renew">Renew leaf (bila jatuh tempo)</button>
+            <button type="button" id="tls-download-ca">Unduh ca.crt</button>
+            <label><input type="checkbox" id="tls-reinit-confirm"> Saya paham: reinit mengganti trust anchor, semua client harus install ulang ca.crt</label>
+            <button type="button" id="tls-reinit">Reinit CA (butuh centang di atas)</button>
+            <p class="muted" id="tls-action-result"></p>
+          </section>
+          <section class="card">
+            <h2>Install ca.crt di client</h2>
+            <ul>
+              <li><b>Windows GUI:</b> klik ganda ca.crt → Install Certificate → Local Machine → Place in Trusted Root Certification Authorities.</li>
+              <li><b>Windows CLI (admin):</b> <span class="mono">certutil -addstore -f "Root" spanel-ca.crt</span></li>
+              <li><b>Group Policy (domain siws.local):</b> Computer Configuration → Policies → Windows Settings → Security Settings → Public Key Policies → Trusted Root Certification Authorities → Import ca.crt. Berlaku untuk semua PC domain tanpa instal manual.</li>
+              <li><b>Firefox:</b> pakai store sendiri — Settings → Privacy &amp; Security → Certificates → View Certificates → Authorities → Import (centang "Trust this CA to identify websites").</li>
+            </ul>
+            <p class="muted">Yang dibagikan hanya ca.crt (publik). Kunci CA (ca.key) tidak pernah keluar dari server. Backup direktori tls ke vault/offline: restore = salin kembali + restart panel. Bila IP server berubah, pakai Regenerate leaf. Bila port 443 bentrok dengan XAMPP, ubah tls_apache_port di panel.json lalu re-apply.</p>
+          </section>
+        </section>
+
+        <section class="view" id="view-apache-config" hidden>
+          <section class="card">
+            <h2>Pengaturan Fcgid</h2>
+            <p class="muted">Nilai ini tersimpan di registry dan ditulis ulang generator ke <code>00-panel-global.conf</code> di setiap apply, jadi bertahan — beda dengan edit file generated langsung yang akan ditimpa apply berikutnya.</p>
+            <form id="fcgid-form" class="inline-form">
+              <label>Maks proses <input id="fcgid-max-processes" type="number" min="1" max="100"></label>
+              <label>Maks proses per class <input id="fcgid-max-processes-per-class" type="number" min="1" max="100"></label>
+              <label>Maks request per proses <input id="fcgid-max-requests-per-process" type="number" min="1" max="100000"></label>
+              <label>Maks panjang request (byte) <input id="fcgid-max-request-len" type="number" min="131072" max="1073741824"></label>
+              <label>IO timeout (detik) <input id="fcgid-io-timeout" type="number" min="10" max="3600"></label>
+              <label>Busy timeout (detik) <input id="fcgid-busy-timeout" type="number" min="10" max="3600"></label>
+              <label>Idle timeout (detik) <input id="fcgid-idle-timeout" type="number" min="10" max="3600"></label>
+              <button type="submit">Simpan &amp; apply</button>
+            </form>
+            <p class="muted" id="fcgid-note"></p>
+          </section>
+          <section class="card">
+            <h2>Modul Apache</h2>
+            <p class="muted">Centang modul yang mau aktif, lalu Simpan. Modul yang dipakai panel (fcgid, dir, alias, dan ssl bila TLS aktif) terkunci dan tidak bisa dimatikan. Setiap simpan di-backup dulu, dites <code>httpd -t</code>, dan hanya di-restart bila tes lolos.</p>
+            <div id="apache-modules-list"></div>
+            <button type="button" id="apache-modules-save">Simpan modul</button>
+            <p class="muted" id="apache-modules-note"></p>
+          </section>
+          <section class="card">
+            <h2>Editor Config</h2>
+            <p class="muted">Hanya file yang diizinkan yang tampil di sini: <code>httpd.conf</code> dan file generated yang live. <code>httpd.conf</code> bertahan di apply berikutnya; file generated akan ditimpa apply berikutnya, jadi edit di sana sifatnya darurat.</p>
+            <label>File <select id="apache-config-file"></select></label>
+            <p class="muted" id="apache-config-durability"></p>
+            <textarea id="apache-config-text" rows="25" cols="100" spellcheck="false" style="width:100%;font-family:monospace"></textarea>
+            <p>
+              <button type="button" id="apache-config-load">Muat ulang</button>
+              <button type="button" id="apache-config-save">Simpan (tes + restart otomatis)</button>
+            </p>
+            <p class="muted" id="apache-config-note"></p>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div id="loading-overlay" hidden>
+  <div class="spinner" role="status" aria-label="Memuat"></div>
+  <p>Memuat…</p>
+</div>
+
+<script src="/static/app.js"></script>
 </body>
-
 </html>

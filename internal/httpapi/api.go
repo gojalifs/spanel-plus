@@ -70,6 +70,9 @@ func (a *api) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/apache/modules", a.apacheModuleSet)
 	mux.HandleFunc("GET /api/v1/apache/fcgid", a.apacheFcgidGet)
 	mux.HandleFunc("PUT /api/v1/apache/fcgid", a.apacheFcgidSet)
+	// Log Apache (access + error), dirotasi harian, retensi 90 hari.
+	mux.HandleFunc("GET /api/v1/apache/logs", a.apacheLogsList)
+	mux.HandleFunc("GET /api/v1/apache/logs/{kind}", a.apacheLogRead)
 	// M4 supervisor surface.
 	mux.HandleFunc("GET /api/v1/processes", a.listProcesses)
 	mux.HandleFunc("POST /api/v1/projects/{name}/processes/{proc}/start", a.processStart)
@@ -612,6 +615,35 @@ func (a *api) apacheFcgidSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeApply(w, res, nil, http.StatusOK)
+}
+
+// Log Apache: list opens (and prunes) the dated files; read serves
+// one day's tail (?date=YYYY-MM-DD, kosong = hari ini).
+
+func (a *api) apacheLogsList(w http.ResponseWriter, _ *http.Request) {
+	_, _, apache := a.services(w)
+	if apache == nil {
+		return
+	}
+	files, err := apache.ListApacheLogs()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"logs": files})
+}
+
+func (a *api) apacheLogRead(w http.ResponseWriter, r *http.Request) {
+	_, _, apache := a.services(w)
+	if apache == nil {
+		return
+	}
+	content, err := apache.ReadApacheLog(r.PathValue("kind"), r.URL.Query().Get("date"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"content": content})
 }
 
 // services returns the attached services, answering 503 when the

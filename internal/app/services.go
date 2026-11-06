@@ -47,6 +47,10 @@ type ApacheOps interface {
 	SetApacheModule(ctx context.Context, name string, enabled bool) error
 	GetFcgidSettings() (core.FcgidSettings, error)
 	SetFcgidSettings(ctx context.Context, settings core.FcgidSettings) (core.ApplyResult, error)
+	// Log Apache (access + error): dated files under ApacheLogDir,
+	// pruned after 90 days. Read returns the tail of one day's file.
+	ListApacheLogs() ([]core.ApacheLogFile, error)
+	ReadApacheLog(kind, date string) (string, error)
 }
 
 // ProcessOps is the supervisor surface for the API (Plan F5).

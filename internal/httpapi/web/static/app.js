@@ -43,7 +43,7 @@ async function api(method, path, body) {
       throw new Error(data.error || 'Sesi habis — login lagi.');
     }
     if (!res.ok) {
-      throw new Error(data.error || 'HTTP ' + res.status);
+      throw new Error(data.error || ('HTTP ' + res.status));
     }
     return data;
   } finally {
@@ -53,48 +53,26 @@ async function api(method, path, body) {
 
 // ---------- sidebar navigation ----------
 
-const views = [
-  'overview',
-  'php',
-  'projects',
-  'project-form',
-  'processes',
-  'logs',
-  'tls',
-  'apache-config',
-];
+const views = ['overview', 'php', 'projects', 'project-form', 'processes', 'logs', 'apache-logs', 'tls', 'apache-config'];
 
 function showView(name) {
   for (const v of views) {
     const sec = $('view-' + v);
     if (sec) sec.hidden = v !== name;
   }
-  const activeView = name === 'project-form' ? 'projects' : name;
   document.querySelectorAll('.nav-item').forEach((b) => {
-    const active = b.dataset.view === activeView;
-    b.classList.toggle('active', active);
-    if (active) b.setAttribute('aria-current', 'page');
-    else b.removeAttribute('aria-current');
+    b.classList.toggle('active', b.dataset.view === name);
   });
-  setSidebarOpen(false);
+  // On mobile the sidebar is off-canvas: close it after choosing.
+  document.body.classList.remove('sidebar-open');
   if (name === 'logs') loadPanelLog();
+  if (name === 'apache-logs') loadApacheLogs();
   if (name === 'apache-config') loadApacheConfig();
-}
-
-function setSidebarOpen(open) {
-  document.body.classList.toggle('sidebar-open', open);
-  $('btn-sidebar-toggle').setAttribute('aria-expanded', String(open));
-  $('btn-sidebar-toggle').setAttribute(
-    'aria-label',
-    open ? 'Tutup navigasi' : 'Buka navigasi',
-  );
-  $('sidebar-backdrop').hidden = !open;
 }
 
 // ---------- M5: login admin ----------
 
 function showLogin() {
-  setSidebarOpen(false);
   $('login-card').hidden = false;
   $('dashboard').hidden = true;
   $('sidebar').hidden = true;
@@ -117,24 +95,21 @@ function setLoginMethod(method) {
   $('login-mode-local').className = method === 'local' ? 'active' : '';
   $('login-mode-ad').className = method === 'ad' ? 'active' : '';
   $('login-username').hidden = method !== 'ad';
-  $('login-password').placeholder =
-    method === 'ad' ? 'Password AD' : 'Password admin';
+  $('login-password').placeholder = method === 'ad' ? 'Password AD' : 'Password admin';
 }
 
 async function boot() {
   try {
     const st = await api('GET', '/api/v1/auth/status');
     if (!st.configured) {
-      $('login-hint').textContent =
-        'Akun admin belum dibuat. Di server, jalankan: panel admin set-password — lalu login di sini.';
+      $('login-hint').textContent = 'Akun admin belum dibuat. Di server, jalankan: panel admin set-password — lalu login di sini.';
     }
     // The AD toggle is only offered when the panel actually has a
     // directory configured; otherwise it would promise a login
     // that can only fail.
     if (!st.ad_enabled) {
       $('login-mode-ad').disabled = true;
-      $('login-mode-ad').title =
-        'Login AD belum diaktifkan di panel.json (ad_enabled).';
+      $('login-mode-ad').title = 'Login AD belum diaktifkan di panel.json (ad_enabled).';
     }
     if (st.authenticated) {
       showDashboard();
@@ -153,12 +128,7 @@ function toast(msg, ok) {
   t.className = 'toast ' + (ok === false ? 'toast-err' : 'toast-ok');
   t.hidden = false;
   clearTimeout(toast._h);
-  toast._h = setTimeout(
-    () => {
-      t.hidden = true;
-    },
-    ok === false ? 12000 : 5000,
-  );
+  toast._h = setTimeout(() => { t.hidden = true; }, ok === false ? 12000 : 5000);
 }
 
 function el(tag, text, cls) {
@@ -178,20 +148,18 @@ function button(label, onClick) {
 let registry = { projects: [], php_versions: [] };
 let apachePort = 80; // site port from /api/v1/overview (httpd.conf Listen); 80 = historic default
 let pendingSetPHP = null; // {name, version} awaiting apply from diff panel
-let editingName = null; // project name when the form is in edit mode
+let editingName = null;    // project name when the form is in edit mode
 
 async function loadAll() {
   try {
     const ov = await api('GET', '/api/v1/overview');
-    $('stat-projects').textContent =
-      ov.projects_active + ' / ' + ov.projects_total;
+    $('stat-projects').textContent = ov.projects_active + ' / ' + ov.projects_total;
     $('stat-php').textContent = String(ov.php_versions);
     $('stat-apache').textContent = ov.apache_status || '(tidak diketahui)';
-    $('stat-apache-name').textContent =
-      'service: ' + (ov.apache_service || '-');
+    $('stat-apache-name').textContent = 'service: ' + (ov.apache_service || '-');
     $('stat-panel').textContent = 'v' + ov.status.version;
     $('apache-chip').textContent = 'Apache: ' + (ov.apache_status || '?');
-    apachePort = ov.status.apache_port || 80;
+    apachePort = (ov.status.apache_port || 80);
     registry = await api('GET', '/api/v1/projects');
     renderPHP();
     renderProjects();
@@ -212,27 +180,12 @@ function tlsDaysLeft(iso) {
 
 function tlsWarnings(st) {
   const warns = [];
-  if (st.renew_error)
-    warns.push(
-      'Auto-renew gagal (' +
-        st.renew_error +
-        ') — periksa log panel, lalu coba Renew manual.',
-    );
+  if (st.renew_error) warns.push('Auto-renew gagal (' + st.renew_error + ') — periksa log panel, lalu coba Renew manual.');
   if (st.enabled) {
     const leaf = tlsDaysLeft(st.leaf_expiry);
-    if (leaf !== null && leaf < 30)
-      warns.push(
-        'Leaf TLS kedaluwarsa ' +
-          (st.leaf_expiry || '').slice(0, 10) +
-          ' — renew segera.',
-      );
+    if (leaf !== null && leaf < 30) warns.push('Leaf TLS kedaluwarsa ' + (st.leaf_expiry || '').slice(0, 10) + ' — renew segera.');
     const ca = tlsDaysLeft(st.ca_expiry);
-    if (ca !== null && ca < 365)
-      warns.push(
-        'CA TLS kedaluwarsa ' +
-          (st.ca_expiry || '').slice(0, 10) +
-          ' — rencanakan reinit-ca (semua client install ulang).',
-      );
+    if (ca !== null && ca < 365) warns.push('CA TLS kedaluwarsa ' + (st.ca_expiry || '').slice(0, 10) + ' — rencanakan reinit-ca (semua client install ulang).');
   }
   return warns;
 }
@@ -244,32 +197,18 @@ async function loadTLS() {
   try {
     const st = await api('GET', '/api/v1/tls/status');
     if (!st.enabled) {
-      banner.textContent =
-        'TLS belum aktif — dashboard masih HTTP. Init di bawah untuk mengaktifkan HTTPS.';
+      banner.textContent = 'TLS belum aktif — dashboard masih HTTP. Init di bawah untuk mengaktifkan HTTPS.';
       banner.className = 'muted';
-      status.textContent =
-        'Apache HTTPS: ' +
-        (st.tls_apache
-          ? 'akan aktif di port ' + st.apache_port + ' sesudah init + apply'
-          : 'nonaktif (tls_apache=false)') +
-        '.';
+      status.textContent = 'Apache HTTPS: ' + (st.tls_apache ? 'akan aktif di port ' + st.apache_port + ' sesudah init + apply' : 'nonaktif (tls_apache=false)') + '.';
       warn.hidden = true;
       return;
     }
-    status.textContent =
-      'Aktif. CA sampai ' +
-      (st.ca_expiry || '').slice(0, 10) +
-      ' · leaf sampai ' +
-      (st.leaf_expiry || '').slice(0, 10) +
-      ' · fingerprint CA: ' +
-      (st.ca_fingerprint || '') +
-      ' · leaf IP: ' +
-      (st.leaf_ips || []).join(', ') +
-      (st.leaf_dns && st.leaf_dns.length
-        ? ' · leaf DNS: ' + st.leaf_dns.join(', ')
-        : '') +
-      ' · Apache HTTPS: ' +
-      (st.tls_apache ? 'port ' + st.apache_port : 'nonaktif');
+    status.textContent = 'Aktif. CA sampai ' + (st.ca_expiry || '').slice(0, 10) +
+      ' · leaf sampai ' + (st.leaf_expiry || '').slice(0, 10) +
+      ' · fingerprint CA: ' + (st.ca_fingerprint || '') +
+      ' · leaf IP: ' + (st.leaf_ips || []).join(', ') +
+      (st.leaf_dns && st.leaf_dns.length ? ' · leaf DNS: ' + st.leaf_dns.join(', ') : '') +
+      ' · Apache HTTPS: ' + (st.tls_apache ? 'port ' + st.apache_port : 'nonaktif');
     const warns = tlsWarnings(st);
     if (warns.length) {
       banner.textContent = warns.join(' ');
@@ -288,19 +227,13 @@ async function loadTLS() {
 }
 
 function tlsSplitList(v) {
-  return v
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s !== '');
+  return v.split(',').map((s) => s.trim()).filter((s) => s !== '');
 }
 
 async function tlsActionResult(res) {
-  let msg = res.changed
-    ? 'Leaf diperbarui sampai ' + (res.leaf_expiry || '').slice(0, 10) + '.'
-    : 'Tidak ada perubahan (renew belum waktunya).';
+  let msg = res.changed ? 'Leaf diperbarui sampai ' + (res.leaf_expiry || '').slice(0, 10) + '.' : 'Tidak ada perubahan (renew belum waktunya).';
   if (res.apache_restarted) msg += ' Apache di-restart.';
-  else if (res.apache_error)
-    msg += ' Apache TIDAK di-restart: ' + res.apache_error;
+  else if (res.apache_error) msg += ' Apache TIDAK di-restart: ' + res.apache_error;
   $('tls-action-result').textContent = msg;
   await loadTLS();
 }
@@ -332,11 +265,7 @@ async function loadDoctor() {
     const report = await api('GET', '/api/v1/doctor');
     list.innerHTML = '';
     for (const c of report.checks) {
-      const li = el(
-        'li',
-        c.status.toUpperCase() + ' · ' + c.name + ' — ' + c.detail,
-        c.status,
-      );
+      const li = el('li', c.status.toUpperCase() + ' · ' + c.name + ' — ' + c.detail, c.status);
       list.appendChild(li);
     }
   } catch (e) {
@@ -382,27 +311,18 @@ let extState = null; // {version, initial: {name: enabled}} for the open checkli
 
 function extStatusText(status) {
   switch (status) {
-    case 'active':
-      return 'aktif';
-    case 'inactive':
-      return 'nonaktif';
-    case 'builtin':
-      return 'bawaan';
-    case 'broken':
-      return 'rusak';
-    case 'not_installed':
-      return 'belum terinstal';
-    default:
-      return status;
+    case 'active': return 'aktif';
+    case 'inactive': return 'nonaktif';
+    case 'builtin': return 'bawaan';
+    case 'broken': return 'rusak';
+    case 'not_installed': return 'belum terinstal';
+    default: return status;
   }
 }
 
 async function showModules(version) {
   try {
-    const data = await api(
-      'GET',
-      '/api/v1/php/' + encodeURIComponent(version) + '/extensions',
-    );
+    const data = await api('GET', '/api/v1/php/' + encodeURIComponent(version) + '/extensions');
     $('php-modules-title').textContent = 'PHP ' + version;
     const list = $('php-ext-list');
     list.innerHTML = '';
@@ -423,22 +343,10 @@ async function showModules(version) {
       extState.initial[e.name] = enabled;
       if (!e.toggleable) cb.disabled = true;
       row.appendChild(cb);
-      row.appendChild(
-        document.createTextNode(
-          ' ' +
-            e.name +
-            (e.zend ? ' (Zend)' : '') +
-            ' — ' +
-            extStatusText(e.status) +
-            (e.hint ? ' · ' + e.hint : ''),
-        ),
-      );
+      row.appendChild(document.createTextNode(' ' + e.name + (e.zend ? ' (Zend)' : '') + ' — ' + extStatusText(e.status) + (e.hint ? ' · ' + e.hint : '')));
       list.appendChild(row);
     }
-    $('php-ext-note').textContent =
-      'php.ini: ' +
-      data.ini_path +
-      ' · Sesudah simpan, restart Apache bila perlu agar semua proses php-cgi baru memakainya.';
+    $('php-ext-note').textContent = 'php.ini: ' + data.ini_path + ' · Sesudah simpan, restart Apache bila perlu agar semua proses php-cgi baru memakainya.';
     $('php-modules').hidden = false;
   } catch (e) {
     toast('Gagal membaca extension: ' + e.message, false);
@@ -448,9 +356,7 @@ async function showModules(version) {
 async function saveExtensions() {
   if (!extState) return;
   const changes = {};
-  for (const cb of document.querySelectorAll(
-    '#php-ext-list input[type=checkbox]',
-  )) {
+  for (const cb of document.querySelectorAll('#php-ext-list input[type=checkbox]')) {
     const name = cb.dataset.name;
     if (cb.checked !== extState.initial[name]) changes[name] = cb.checked;
   }
@@ -459,17 +365,12 @@ async function saveExtensions() {
     return;
   }
   try {
-    const res = await api(
-      'POST',
-      '/api/v1/php/' + encodeURIComponent(extState.version) + '/extensions',
-      { extensions: changes },
-    );
+    const res = await api('POST', '/api/v1/php/' + encodeURIComponent(extState.version) + '/extensions', { extensions: changes });
     if (!res.changed) {
       toast('Tidak ada perubahan extension.');
     } else {
       let msg = 'Extension disimpan.';
-      if (res.auto_enabled && res.auto_enabled.length)
-        msg += ' Otomatis ikut aktif: ' + res.auto_enabled.join(', ') + '.';
+      if (res.auto_enabled && res.auto_enabled.length) msg += ' Otomatis ikut aktif: ' + res.auto_enabled.join(', ') + '.';
       if (res.backup_path) msg += ' Backup: ' + res.backup_path;
       toast(msg);
     }
@@ -480,14 +381,7 @@ async function saveExtensions() {
 }
 
 async function removePHP(version) {
-  if (
-    !confirm(
-      'Hapus pendaftaran PHP ' +
-        version +
-        '? Folder PHP-nya sendiri tidak dihapus.',
-    )
-  )
-    return;
+  if (!confirm('Hapus pendaftaran PHP ' + version + '? Folder PHP-nya sendiri tidak dihapus.')) return;
   try {
     await api('DELETE', '/api/v1/php/' + encodeURIComponent(version));
     toast('PHP ' + version + ' dihapus dari registry.');
@@ -515,11 +409,7 @@ function renderProjects() {
   tbody.innerHTML = '';
   if (!registry.projects.length) {
     const tr = el('tr');
-    const td = el(
-      'td',
-      'Belum ada proyek. Tambahkan lewat form di bawah.',
-      'muted',
-    );
+    const td = el('td', 'Belum ada proyek. Tambahkan lewat form di bawah.', 'muted');
     td.colSpan = 7;
     tr.appendChild(td);
     tbody.appendChild(tr);
@@ -530,11 +420,7 @@ function renderProjects() {
     tr.appendChild(el('td', p.name, 'mono'));
     const urlTd = el('td');
     const a = el('a', p.url_path, 'mono');
-    a.href =
-      'http://' +
-      window.location.hostname +
-      (apachePort === 80 ? '' : ':' + apachePort) +
-      p.url_path;
+    a.href = 'http://' + window.location.hostname + (apachePort === 80 ? '' : ':' + apachePort) + p.url_path;
     a.target = '_blank';
     urlTd.appendChild(a);
     tr.appendChild(urlTd);
@@ -543,9 +429,7 @@ function renderProjects() {
     if (p.type === 'static') {
       phpTd.textContent = p.php_version || '—';
     } else {
-      phpTd.appendChild(
-        phpSelect(p.php_version, (v) => previewSetPHP(p.name, v)),
-      );
+      phpTd.appendChild(phpSelect(p.php_version, (v) => previewSetPHP(p.name, v)));
     }
     tr.appendChild(phpTd);
     const enTd = el('td');
@@ -575,10 +459,7 @@ async function loadWarnings(name) {
   const cell = $('warn-' + name);
   if (!cell) return;
   try {
-    const data = await api(
-      'GET',
-      '/api/v1/projects/' + encodeURIComponent(name) + '/warnings',
-    );
+    const data = await api('GET', '/api/v1/projects/' + encodeURIComponent(name) + '/warnings');
     cell.innerHTML = '';
     if (!data.warnings.length) {
       cell.appendChild(el('span', '—', 'muted'));
@@ -596,17 +477,8 @@ async function loadWarnings(name) {
 
 async function setEnabled(name, enabled) {
   try {
-    await api(
-      'POST',
-      '/api/v1/projects/' + encodeURIComponent(name) + '/enabled',
-      { enabled: enabled },
-    );
-    toast(
-      'Proyek ' +
-        name +
-        (enabled ? ' diaktifkan' : ' dimatikan') +
-        ' & di-apply.',
-    );
+    await api('POST', '/api/v1/projects/' + encodeURIComponent(name) + '/enabled', { enabled: enabled });
+    toast('Proyek ' + name + (enabled ? ' diaktifkan' : ' dimatikan') + ' & di-apply.');
     loadAll();
   } catch (e) {
     toast(e.message, false);
@@ -616,18 +488,13 @@ async function setEnabled(name, enabled) {
 
 async function previewSetPHP(name, version) {
   try {
-    const diff = await api(
-      'POST',
-      '/api/v1/projects/' + encodeURIComponent(name) + '/preview-set-php',
-      { version: version },
-    );
+    const diff = await api('POST', '/api/v1/projects/' + encodeURIComponent(name) + '/preview-set-php', { version: version });
     pendingSetPHP = { name: name, version: version };
     $('diff-title').textContent = name + ' → PHP ' + version;
     const pre = $('diff-body');
     pre.innerHTML = '';
     for (const line of diff.lines) {
-      const prefix =
-        line.kind === 'add' ? '+ ' : line.kind === 'remove' ? '- ' : '  ';
+      const prefix = line.kind === 'add' ? '+ ' : line.kind === 'remove' ? '- ' : '  ';
       const span = el('span', prefix + line.text + '\n', 'diff-' + line.kind);
       pre.appendChild(span);
     }
@@ -642,10 +509,7 @@ async function previewSetPHP(name, version) {
 
 async function showConfig(name) {
   try {
-    const data = await api(
-      'GET',
-      '/api/v1/projects/' + encodeURIComponent(name) + '/config',
-    );
+    const data = await api('GET', '/api/v1/projects/' + encodeURIComponent(name) + '/config');
     pendingSetPHP = null;
     $('diff-title').textContent = 'config aktif ' + name;
     const pre = $('diff-body');
@@ -659,14 +523,7 @@ async function showConfig(name) {
 }
 
 async function removeProject(name) {
-  if (
-    !confirm(
-      'Hapus proyek ' +
-        name +
-        ' dari panel? Folder proyek tidak dihapus; config-nya dicabut dari Apache lewat apply.',
-    )
-  )
-    return;
+  if (!confirm('Hapus proyek ' + name + ' dari panel? Folder proyek tidak dihapus; config-nya dicabut dari Apache lewat apply.')) return;
   try {
     await api('DELETE', '/api/v1/projects/' + encodeURIComponent(name));
     toast('Proyek ' + name + ' dihapus & di-apply.');
@@ -690,7 +547,7 @@ function fillForm(p) {
   $('pf-php').value = p.php_version || '';
   $('pf-enabled').checked = p.enabled;
   $('pf-processes').innerHTML = '';
-  for (const def of p.cli_processes || []) addProcessRow(def);
+  for (const def of (p.cli_processes || [])) addProcessRow(def);
   $('project-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
@@ -709,24 +566,12 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', () => showView(b.dataset.view));
   });
   $('btn-sidebar-toggle').addEventListener('click', () => {
-    setSidebarOpen(!$('btn-sidebar-toggle').matches('[aria-expanded="true"]'));
-  });
-  $('sidebar-backdrop').addEventListener('click', () => setSidebarOpen(false));
-  document.addEventListener('keydown', (ev) => {
-    if (
-      ev.key === 'Escape' &&
-      document.body.classList.contains('sidebar-open')
-    ) {
-      setSidebarOpen(false);
-      $('btn-sidebar-toggle').focus();
-    }
-  });
-  $('btn-project-create').addEventListener('click', () => {
-    resetForm();
-    showView('project-form');
-    $('pf-name').focus();
+    document.body.classList.toggle('sidebar-open');
   });
   $('btn-panel-log-reload').addEventListener('click', loadPanelLog);
+  $('apache-log-kind').addEventListener('change', loadApacheLogFile);
+  $('apache-log-date').addEventListener('change', loadApacheLogFile);
+  $('btn-apache-log-reload').addEventListener('click', loadApacheLogs);
   $('fcgid-form').addEventListener('submit', saveFcgid);
   $('apache-modules-save').addEventListener('click', saveApacheModules);
   $('apache-config-file').addEventListener('change', loadApacheConfigFile);
@@ -741,10 +586,7 @@ document.addEventListener('DOMContentLoaded', () => {
         names: tlsSplitList($('tls-names').value),
         ca_years: parseInt($('tls-ca-years').value, 10) || 0,
       });
-      toast(
-        'TLS di-init. Restart service panel agar dashboard jadi HTTPS, lalu install ca.crt di client.' +
-          (info.warning ? ' ' + info.warning : ''),
-      );
+      toast('TLS di-init. Restart service panel agar dashboard jadi HTTPS, lalu install ca.crt di client.' + (info.warning ? ' ' + info.warning : ''));
       await loadTLS();
     } catch (e) {
       toast(e.message, false);
@@ -773,18 +615,10 @@ document.addEventListener('DOMContentLoaded', () => {
   $('tls-download-ca').addEventListener('click', downloadCA);
   $('tls-reinit').addEventListener('click', async () => {
     if (!$('tls-reinit-confirm').checked) {
-      toast(
-        'Centang dulu pernyataan reinit — ini mengganti trust anchor.',
-        false,
-      );
+      toast('Centang dulu pernyataan reinit — ini mengganti trust anchor.', false);
       return;
     }
-    if (
-      !window.confirm(
-        'Reinit CA mengganti trust anchor. Semua client harus install ulang ca.crt. Lanjutkan?',
-      )
-    )
-      return;
+    if (!window.confirm('Reinit CA mengganti trust anchor. Semua client harus install ulang ca.crt. Lanjutkan?')) return;
     try {
       const res = await api('POST', '/api/v1/tls/reinit-ca', {
         confirm: true,
@@ -802,22 +636,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('php-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     try {
-      const reg = await api('POST', '/api/v1/php', {
-        path: $('php-path').value,
-      });
-      toast(
-        'PHP ' +
-          reg.version.version +
-          ' (' +
-          reg.full_version +
-          ', ' +
-          (reg.nts ? 'NTS' : 'TS') +
-          ' ' +
-          reg.arch +
-          ') terdaftar; php.ini: ' +
-          reg.php_ini +
-          '.',
-      );
+      const reg = await api('POST', '/api/v1/php', { path: $('php-path').value });
+      toast('PHP ' + reg.version.version + ' (' + reg.full_version + ', ' + (reg.nts ? 'NTS' : 'TS') + ' ' + reg.arch + ') terdaftar; php.ini: ' + reg.php_ini + '.');
       $('php-path').value = '';
       loadAll();
     } catch (e) {
@@ -832,13 +652,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!res.registered?.length && !res.skipped?.length) {
         msg += 'tidak ada PHP baru.';
       } else {
-        if (res.registered?.length)
-          msg += 'terdaftar: ' + res.registered.join(', ') + '. ';
-        if (res.skipped?.length)
-          msg +=
-            'dilewati: ' +
-            res.skipped.map((s) => s.path + ' (' + s.reason + ')').join('; ') +
-            '.';
+        if (res.registered?.length) msg += 'terdaftar: ' + res.registered.join(', ') + '. ';
+        if (res.skipped?.length) msg += 'dilewati: ' + res.skipped.map(s => s.path + ' (' + s.reason + ')').join('; ') + '.';
       }
       toast(msg);
       loadAll();
@@ -861,11 +676,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     try {
       if (editingName) {
-        await api(
-          'PUT',
-          '/api/v1/projects/' + encodeURIComponent(editingName),
-          payload,
-        );
+        await api('PUT', '/api/v1/projects/' + encodeURIComponent(editingName), payload);
         toast('Proyek ' + editingName + ' diperbarui & di-apply.');
       } else {
         await api('POST', '/api/v1/projects', payload);
@@ -883,20 +694,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('diff-apply').addEventListener('click', async () => {
     if (!pendingSetPHP) return;
     try {
-      await api(
-        'POST',
-        '/api/v1/projects/' +
-          encodeURIComponent(pendingSetPHP.name) +
-          '/set-php',
-        { version: pendingSetPHP.version },
-      );
-      toast(
-        'PHP ' +
-          pendingSetPHP.name +
-          ' → ' +
-          pendingSetPHP.version +
-          ' ter-apply.',
-      );
+      await api('POST', '/api/v1/projects/' + encodeURIComponent(pendingSetPHP.name) + '/set-php', { version: pendingSetPHP.version });
+      toast('PHP ' + pendingSetPHP.name + ' → ' + pendingSetPHP.version + ' ter-apply.');
       pendingSetPHP = null;
       $('diff-panel').hidden = true;
       loadAll();
@@ -911,51 +710,24 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   $('pf-proc-add').addEventListener('click', () => addProcessRow());
-  $('pf-proc-queue').addEventListener('click', () =>
-    addProcessRow({
-      name: 'queue',
-      command: 'artisan queue:work',
-      kind: '',
-      autostart: true,
-      restart: 'on-failure',
-    }),
-  );
-  $('pf-proc-sched').addEventListener('click', () =>
-    addProcessRow({
-      name: 'scheduler',
-      command: '',
-      kind: 'schedule:run',
-      autostart: true,
-    }),
-  );
-  $('log-close').addEventListener('click', () => {
-    $('log-panel').hidden = true;
-  });
+  $('pf-proc-queue').addEventListener('click', () => addProcessRow({ name: 'queue', command: 'artisan queue:work', kind: '', autostart: true, restart: 'on-failure' }));
+  $('pf-proc-sched').addEventListener('click', () => addProcessRow({ name: 'scheduler', command: '', kind: 'schedule:run', autostart: true }));
+  $('log-close').addEventListener('click', () => { $('log-panel').hidden = true; });
   $('run-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const out = $('run-output');
     out.hidden = false;
     out.textContent = 'Menjalankan…';
     try {
-      const res = await api(
-        'POST',
-        '/api/v1/projects/' +
-          encodeURIComponent($('run-project').value) +
-          '/run',
-        { command: $('run-command').value },
-      );
-      out.textContent =
-        '[exit ' + res.exit_code + ']\n' + (res.output || '(tanpa output)');
+      const res = await api('POST', '/api/v1/projects/' + encodeURIComponent($('run-project').value) + '/run', { command: $('run-command').value });
+      out.textContent = '[exit ' + res.exit_code + ']\n' + (res.output || '(tanpa output)');
     } catch (e) {
       out.textContent = 'Gagal: ' + e.message;
     }
   });
 
   $('btn-apache-restart').addEventListener('click', async () => {
-    if (
-      !confirm('Restart service Apache sekarang? Semua proyek berhenti sesaat.')
-    )
-      return;
+    if (!confirm('Restart service Apache sekarang? Semua proyek berhenti sesaat.')) return;
     try {
       await api('POST', '/api/v1/apache/restart');
       toast('Apache di-restart.');
@@ -973,9 +745,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  $('login-mode-local').addEventListener('click', () =>
-    setLoginMethod('local'),
-  );
+  $('login-mode-local').addEventListener('click', () => setLoginMethod('local'));
   $('login-mode-ad').addEventListener('click', () => setLoginMethod('ad'));
   $('login-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -992,11 +762,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   $('btn-logout').addEventListener('click', async () => {
-    try {
-      await api('POST', '/api/v1/auth/logout');
-    } catch (e) {
-      /* sesi sudah mati */
-    }
+    try { await api('POST', '/api/v1/auth/logout'); } catch (e) { /* sesi sudah mati */ }
     showLogin();
   });
 
@@ -1023,11 +789,7 @@ async function loadProcesses() {
     tbody.innerHTML = '';
     if (!data.processes.length) {
       const tr = el('tr');
-      const td = el(
-        'td',
-        'Belum ada definisi proses. Tambahkan lewat Edit proyek → Proses CLI (ada template Laravel).',
-        'muted',
-      );
+      const td = el('td', 'Belum ada definisi proses. Tambahkan lewat Edit proyek → Proses CLI (ada template Laravel).', 'muted');
       td.colSpan = 7;
       tr.appendChild(td);
       tbody.appendChild(tr);
@@ -1037,23 +799,11 @@ async function loadProcesses() {
       const tr = el('tr');
       tr.appendChild(el('td', st.project, 'mono'));
       tr.appendChild(el('td', st.name, 'mono'));
-      tr.appendChild(
-        el(
-          'td',
-          st.kind === 'schedule:run'
-            ? 'artisan schedule:run (tiap menit)'
-            : st.command || '',
-          'mono',
-        ),
-      );
+      tr.appendChild(el('td', st.kind === 'schedule:run' ? 'artisan schedule:run (tiap menit)' : (st.command || ''), 'mono'));
       const stateTd = el('td');
       const chip = el('span', st.state, 'state-chip state-' + st.state);
       stateTd.appendChild(chip);
-      if (
-        st.kind === 'schedule:run' &&
-        st.last_run_at &&
-        !st.last_run_at.startsWith('0001')
-      ) {
+      if (st.kind === 'schedule:run' && st.last_run_at && !st.last_run_at.startsWith('0001')) {
         stateTd.appendChild(el('div', 'terakhir: ' + st.last_run_at, 'muted'));
       }
       tr.appendChild(stateTd);
@@ -1069,9 +819,7 @@ async function loadProcesses() {
         actions.append(
           button('Start', () => processAction(st.project, st.name, 'start')),
           button('Stop', () => processAction(st.project, st.name, 'stop')),
-          button('Restart', () =>
-            processAction(st.project, st.name, 'restart'),
-          ),
+          button('Restart', () => processAction(st.project, st.name, 'restart')),
           button('Log', () => showProcessLog(st.project, st.name)),
         );
       }
@@ -1090,15 +838,7 @@ async function loadProcesses() {
 
 async function processAction(project, name, action) {
   try {
-    await api(
-      'POST',
-      '/api/v1/projects/' +
-        encodeURIComponent(project) +
-        '/processes/' +
-        encodeURIComponent(name) +
-        '/' +
-        action,
-    );
+    await api('POST', '/api/v1/projects/' + encodeURIComponent(project) + '/processes/' + encodeURIComponent(name) + '/' + action);
     toast('Proses ' + project + '/' + name + ': ' + action + ' ok.');
     loadProcesses();
   } catch (e) {
@@ -1108,10 +848,7 @@ async function processAction(project, name, action) {
 
 async function scheduleRunNow(project) {
   try {
-    const res = await api(
-      'POST',
-      '/api/v1/projects/' + encodeURIComponent(project) + '/schedule-run',
-    );
+    const res = await api('POST', '/api/v1/projects/' + encodeURIComponent(project) + '/schedule-run');
     toast('schedule:run ' + project + ' selesai (exit ' + res.exit_code + ').');
     loadProcesses();
   } catch (e) {
@@ -1121,14 +858,7 @@ async function scheduleRunNow(project) {
 
 async function showProcessLog(project, name) {
   try {
-    const data = await api(
-      'GET',
-      '/api/v1/projects/' +
-        encodeURIComponent(project) +
-        '/processes/' +
-        encodeURIComponent(name) +
-        '/log',
-    );
+    const data = await api('GET', '/api/v1/projects/' + encodeURIComponent(project) + '/processes/' + encodeURIComponent(name) + '/log');
     $('log-title').textContent = project + '/' + name;
     $('log-body').textContent = data.log || '(log masih kosong)';
     $('log-panel').hidden = false;
@@ -1141,13 +871,7 @@ async function showProcessLog(project, name) {
 // ---------- process definition editor (in the project form) ----------
 
 function addProcessRow(def) {
-  def = def || {
-    name: '',
-    command: '',
-    kind: '',
-    autostart: true,
-    restart: 'on-failure',
-  };
+  def = def || { name: '', command: '', kind: '', autostart: true, restart: 'on-failure' };
   const row = el('div', undefined, 'proc-row');
   const name = document.createElement('input');
   name.placeholder = 'nama (queue)';
@@ -1158,10 +882,8 @@ function addProcessRow(def) {
   cmd.value = def.command || '';
   cmd.className = 'pr-command';
   const kind = el('select');
-  const k1 = el('option', 'Proses panjang');
-  k1.value = '';
-  const k2 = el('option', 'Scheduler (schedule:run)');
-  k2.value = 'schedule:run';
+  const k1 = el('option', 'Proses panjang'); k1.value = '';
+  const k2 = el('option', 'Scheduler (schedule:run)'); k2.value = 'schedule:run';
   kind.append(k1, k2);
   kind.value = def.kind || '';
   kind.className = 'pr-kind';
@@ -1184,10 +906,7 @@ function collectProcesses() {
     const kind = row.querySelector('.pr-kind').value;
     out.push({
       name: name,
-      command:
-        kind === 'schedule:run'
-          ? ''
-          : row.querySelector('.pr-command').value.trim(),
+      command: kind === 'schedule:run' ? '' : row.querySelector('.pr-command').value.trim(),
       kind: kind,
       autostart: row.querySelector('.pr-autostart').checked,
       restart: 'on-failure',
@@ -1204,9 +923,7 @@ async function loadPanelLog() {
   try {
     const data = await api('GET', '/api/v1/logs?lines=300');
     pathNote.textContent = 'File: ' + data.path + ' (' + data.total + ' baris)';
-    text.textContent = data.lines.length
-      ? data.lines.join('\n')
-      : '(log masih kosong)';
+    text.textContent = data.lines.length ? data.lines.join('\n') : '(log masih kosong)';
   } catch (err) {
     text.textContent = 'Gagal memuat log: ' + err.message;
   }
@@ -1223,14 +940,12 @@ async function loadApacheConfig() {
     const v = f.fcgid || {};
     $('fcgid-max-processes').value = v.max_processes || '';
     $('fcgid-max-processes-per-class').value = v.max_processes_per_class || '';
-    $('fcgid-max-requests-per-process').value =
-      v.max_requests_per_process || '';
+    $('fcgid-max-requests-per-process').value = v.max_requests_per_process || '';
     $('fcgid-max-request-len').value = v.max_request_len || '';
     $('fcgid-io-timeout').value = v.io_timeout || '';
     $('fcgid-busy-timeout').value = v.busy_timeout || '';
     $('fcgid-idle-timeout').value = v.idle_timeout || '';
-    $('fcgid-note').textContent =
-      'Nilai yang tampil adalah nilai efektif (kosong di registry = default).';
+    $('fcgid-note').textContent = 'Nilai yang tampil adalah nilai efektif (kosong di registry = default).';
   } catch (e) {
     toast('Gagal memuat pengaturan fcgid: ' + e.message, false);
   }
@@ -1250,15 +965,7 @@ async function loadApacheConfig() {
       // tampil tercentang tapi tidak bisa dimatikan.
       if (mod.locked && mod.enabled) cb.disabled = true;
       row.appendChild(cb);
-      row.appendChild(
-        document.createTextNode(
-          ' ' +
-            mod.name +
-            ' — ' +
-            mod.file +
-            (mod.locked ? ' · terkunci: ' + (mod.locked_reason || '') : ''),
-        ),
-      );
+      row.appendChild(document.createTextNode(' ' + mod.name + ' — ' + mod.file + (mod.locked ? ' · terkunci: ' + (mod.locked_reason || '') : '')));
       list.appendChild(row);
     }
   } catch (e) {
@@ -1284,20 +991,16 @@ async function saveFcgid(ev) {
   ev.preventDefault();
   const num = (id) => parseInt($(id).value, 10) || 0;
   try {
-    await api('PUT', '/api/v1/apache/fcgid', {
-      fcgid: {
-        max_processes: num('fcgid-max-processes'),
-        max_processes_per_class: num('fcgid-max-processes-per-class'),
-        max_requests_per_process: num('fcgid-max-requests-per-process'),
-        max_request_len: num('fcgid-max-request-len'),
-        io_timeout: num('fcgid-io-timeout'),
-        busy_timeout: num('fcgid-busy-timeout'),
-        idle_timeout: num('fcgid-idle-timeout'),
-      },
-    });
-    toast(
-      'Pengaturan fcgid disimpan & di-apply (bertahan di apply berikutnya).',
-    );
+    await api('PUT', '/api/v1/apache/fcgid', { fcgid: {
+      max_processes: num('fcgid-max-processes'),
+      max_processes_per_class: num('fcgid-max-processes-per-class'),
+      max_requests_per_process: num('fcgid-max-requests-per-process'),
+      max_request_len: num('fcgid-max-request-len'),
+      io_timeout: num('fcgid-io-timeout'),
+      busy_timeout: num('fcgid-busy-timeout'),
+      idle_timeout: num('fcgid-idle-timeout'),
+    }});
+    toast('Pengaturan fcgid disimpan & di-apply (bertahan di apply berikutnya).');
     await loadApacheConfig();
   } catch (e) {
     toast(e.message, false);
@@ -1306,11 +1009,8 @@ async function saveFcgid(ev) {
 
 async function saveApacheModules() {
   const changes = [];
-  for (const cb of document.querySelectorAll(
-    '#apache-modules-list input[type=checkbox]',
-  )) {
-    if (cb.checked !== apacheModulesInitial[cb.dataset.name])
-      changes.push({ name: cb.dataset.name, enabled: cb.checked });
+  for (const cb of document.querySelectorAll('#apache-modules-list input[type=checkbox]')) {
+    if (cb.checked !== apacheModulesInitial[cb.dataset.name]) changes.push({ name: cb.dataset.name, enabled: cb.checked });
   }
   if (!changes.length) {
     toast('Tidak ada perubahan modul.');
@@ -1320,9 +1020,7 @@ async function saveApacheModules() {
     for (const ch of changes) {
       await api('POST', '/api/v1/apache/modules', ch);
     }
-    toast(
-      'Modul disimpan (tiap perubahan di-backup, dites httpd -t, lalu restart Apache).',
-    );
+    toast('Modul disimpan (tiap perubahan di-backup, dites httpd -t, lalu restart Apache).');
     await loadApacheConfig();
   } catch (e) {
     toast(e.message, false);
@@ -1334,15 +1032,10 @@ async function loadApacheConfigFile() {
   if (!name) return;
   const meta = apacheConfigFiles.find((f) => f.name === name);
   $('apache-config-durability').textContent = meta
-    ? meta.durable
-      ? 'File ini bertahan di apply berikutnya.'
-      : 'File generated: akan ditimpa apply berikutnya — edit di sini sifatnya darurat, untuk permanen pakai Pengaturan Fcgid di atas.'
+    ? (meta.durable ? 'File ini bertahan di apply berikutnya.' : 'File generated: akan ditimpa apply berikutnya — edit di sini sifatnya darurat, untuk permanen pakai Pengaturan Fcgid di atas.')
     : '';
   try {
-    const data = await api(
-      'GET',
-      '/api/v1/apache/config/' + encodeURIComponent(name),
-    );
+    const data = await api('GET', '/api/v1/apache/config/' + encodeURIComponent(name));
     $('apache-config-text').value = data.content || '';
     $('apache-config-note').textContent = 'Path: ' + (meta ? meta.path : name);
   } catch (e) {
@@ -1353,24 +1046,55 @@ async function loadApacheConfigFile() {
 async function saveApacheConfigFile() {
   const name = $('apache-config-file').value;
   if (!name) return;
-  if (
-    !window.confirm(
-      'Simpan ' +
-        name +
-        '? File lama di-backup, dites httpd -t, dan Apache di-restart otomatis bila tes lolos.',
-    )
-  )
-    return;
+  if (!window.confirm('Simpan ' + name + '? File lama di-backup, dites httpd -t, dan Apache di-restart otomatis bila tes lolos.')) return;
   try {
-    const res = await api(
-      'PUT',
-      '/api/v1/apache/config/' + encodeURIComponent(name),
-      { content: $('apache-config-text').value },
-    );
-    toast(
-      'Config disimpan & Apache di-restart. Backup: ' + (res.backup || '-'),
-    );
+    const res = await api('PUT', '/api/v1/apache/config/' + encodeURIComponent(name), { content: $('apache-config-text').value });
+    toast('Config disimpan & Apache di-restart. Backup: ' + (res.backup || '-'));
   } catch (e) {
     toast(e.message, false);
+  }
+}
+
+// ---------- Log Apache (access + error, retensi 90 hari) ----------
+
+let apacheLogFiles = [];
+
+async function loadApacheLogs() {
+  try {
+    const data = await api('GET', '/api/v1/apache/logs');
+    apacheLogFiles = data.logs || [];
+    await loadApacheLogFile();
+    $('apache-log-note').textContent = 'File dirotasi per hari (access-YYYY-MM-DD.log / error-YYYY-MM-DD.log) dan disimpan maksimal 90 hari; file lebih lama sudah dihapus saat daftar ini dibuka.';
+  } catch (e) {
+    $('apache-log-text').textContent = 'Gagal memuat log Apache: ' + e.message;
+  }
+}
+
+async function loadApacheLogFile() {
+  const kind = $('apache-log-kind').value;
+  const dates = [...new Set(apacheLogFiles.filter((f) => f.kind === kind && f.date).map((f) => f.date))].sort().reverse();
+  const sel = $('apache-log-date');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  if (!dates.length) {
+    const o = el('option', '(belum ada log)');
+    o.value = '';
+    sel.appendChild(o);
+  }
+  for (const d of dates) {
+    const o = el('option', d);
+    o.value = d;
+    sel.appendChild(o);
+  }
+  if (prev && dates.includes(prev)) sel.value = prev;
+  const date = sel.value;
+  const meta = apacheLogFiles.find((f) => f.kind === kind && f.date === date)
+    || apacheLogFiles.find((f) => f.kind === kind && !f.date);
+  $('apache-log-path').textContent = meta ? 'File: ' + meta.path : 'Belum ada log ' + kind + ' — Apache baru menulis sesudah apply berikutnya.';
+  try {
+    const data = await api('GET', '/api/v1/apache/logs/' + encodeURIComponent(kind) + (date ? '?date=' + encodeURIComponent(date) : ''));
+    $('apache-log-text').textContent = data.content || '(log masih kosong)';
+  } catch (e) {
+    $('apache-log-text').textContent = 'Gagal memuat log: ' + e.message;
   }
 }

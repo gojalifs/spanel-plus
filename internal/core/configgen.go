@@ -19,6 +19,10 @@ type Generator struct {
 	// file. Zero value = no vhost (HTTP-only), so existing callers
 	// and golden files are unaffected.
 	TLS TLSVHost
+	// ApacheLogs, when Dir is set, adds the ErrorLog/CustomLog
+	// block to the global file (see apache_logs.go). Zero value =
+	// no log directives, so diffs and golden files are unaffected.
+	ApacheLogs ApacheLogConfig
 }
 
 // TLSVHost describes the panel's HTTPS front for Apache: one global
@@ -82,6 +86,7 @@ func (g Generator) globalConfig(f FcgidSettings) string {
 	b.WriteString("    FcgidInitialEnv TMP \"C:/Windows/Temp\"\n")
 	b.WriteString("    FcgidInitialEnv windir \"C:/Windows\"\n")
 	b.WriteString("</IfModule>\n")
+	b.WriteString(g.apacheLogDirectives())
 	if g.TLS.Enabled {
 		b.WriteString("\n")
 		b.WriteString("# HTTPS (panel TLS): one global VirtualHost reusing the\n")
@@ -96,6 +101,72 @@ func (g Generator) globalConfig(f FcgidSettings) string {
 		b.WriteString("</VirtualHost>\n")
 	}
 	return b.String()
+}
+
+// apacheLogDirectives renders the ErrorLog/CustomLog block for the
+// global file, or "" when no log dir is configured. The block lives
+// in 00-panel-global.conf, which the IncludeOptional at the end of
+// httpd.conf loads last — so these directives override httpd.conf's
+// own ErrorLog/CustomLog, and the project vhosts plus the TLS
+// vhost inherit them (none of them sets its own logs).
+//
+// Rotation uses bin/rotatelogs.exe relative to ServerRoot
+// (== ApacheHome): one dated file per day, pruned after 90 days by
+// the panel. The access format uses the panel_combined nickname
+// (identical fields to the standard combined format) so a httpd.conf
+// that already defines "combined" cannot collide. When rotatelogs
+// is missing the directives fall back to plain files in the same
+// dir — unbounded, and the comment says so.
+func (g Generator) apacheLogDirectives() string {
+	cfg := g.ApacheLogs
+	if cfg.Dir == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n")
+	if cfg.Rotate {
+		b.WriteString("# Apache logs (panel): access + error, dirotasi harian\n")
+		b.WriteString("# oleh rotatelogs bawaan Apache, disimpan maksimal 90 hari\n")
+		b.WriteString("# (3 bulan); file lebih lama dihapus otomatis oleh panel.\n")
+		fmt.Fprintf(&b, "# File: %s/access-YYYY-MM-DD.log dan error-YYYY-MM-DD.log.\n", cfg.Dir)
+	} else {
+		b.WriteString("# Apache logs (panel): rotatelogs.exe tidak ditemukan di\n")
+		b.WriteString("# bin/ Apache, jadi log ditulis ke file tunggal tanpa\n")
+		b.WriteString("# rotasi harian (retensi 90 hari tidak berlaku untuk file\n")
+		b.WriteString("# ini). Pasang rotatelogs dari distribusi Apache untuk\n")
+		b.WriteString("# mengaktifkan rotasi harian.\n")
+	}
+	b.WriteString("# Format access memakai nickname panel_combined (isi sama\n")
+	b.WriteString("# dengan format combined standar) supaya tidak bentrok\n")
+	b.WriteString("# bila httpd.conf sudah mendefinisikan \"combined\".\n")
+	b.WriteString("LogFormat \"%h %l %u %t \\\"%r\\\" %>s %b \\\"%{Referer}i\\\" \\\"%{User-Agent}i\\\"\" panel_combined\n")
+	if cfg.Rotate {
+		fmt.Fprintf(&b, "ErrorLog \"|bin/rotatelogs.exe %s 86400\"\n", pipeArg(cfg.Dir+"/error-%Y-%m-%d.log"))
+		fmt.Fprintf(&b, "CustomLog \"|bin/rotatelogs.exe %s 86400\" panel_combined\n", pipeArg(cfg.Dir+"/access-%Y-%m-%d.log"))
+	} else {
+		fmt.Fprintf(&b, "ErrorLog %s\n", apacheQuote(cfg.Dir+"/error.log"))
+		fmt.Fprintf(&b, "CustomLog %s panel_combined\n", apacheQuote(cfg.Dir+"/access.log"))
+	}
+	return b.String()
+}
+
+// apacheQuote quotes an Apache config path when it contains a space
+// (or a quote); plain paths are left unquoted.
+func apacheQuote(p string) string {
+	if strings.ContainsAny(p, " \t\"") {
+		return "\"" + strings.ReplaceAll(p, "\"", "\\\"") + "\""
+	}
+	return p
+}
+
+// pipeArg quotes a path argument inside a piped-log command string:
+// the outer command is already double-quoted, so an inner quote
+// must be backslash-escaped for Apache's config parser.
+func pipeArg(p string) string {
+	if strings.ContainsAny(p, " \t\"") {
+		return "\\\"" + strings.ReplaceAll(p, "\"", "\\\"") + "\\\""
+	}
+	return p
 }
 
 func generateProject(documentRoot string, p Project, php PHPVersion) string {

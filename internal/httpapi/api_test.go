@@ -101,6 +101,12 @@ func (f *fakeApache) GetFcgidSettings() (core.FcgidSettings, error) {
 func (f *fakeApache) SetFcgidSettings(context.Context, core.FcgidSettings) (core.ApplyResult, error) {
 	return core.ApplyResult{}, nil
 }
+func (f *fakeApache) ListApacheLogs() ([]core.ApacheLogFile, error) {
+	return []core.ApacheLogFile{{Kind: "access", Date: "2026-11-06", Path: "logs/apache/access-2026-11-06.log"}}, nil
+}
+func (f *fakeApache) ReadApacheLog(string, string) (string, error) {
+	return "127.0.0.1 - - test\n", nil
+}
 
 func apiHandler(t *testing.T) (http.Handler, *fakeProjects) {
 	t.Helper()
