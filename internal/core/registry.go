@@ -291,9 +291,11 @@ func validateProjectStructure(p Project, phpSeen map[string]bool) error {
 	}
 	switch p.Type {
 	case ProjectLaravel, ProjectCI4:
-		if p.PublicSubdir == "" {
-			return fmt.Errorf("registry: %s project %s must set public_subdir (usually \"public\")", p.Type, p.Name)
-		}
+		// public_subdir is optional since Opsi B (keputusan max
+		// 2026-11-06): empty means Apache serves the project root
+		// (TargetDir returns FSPath). That exposes .env and sources
+		// to the web, so the dashboard warns before saving — but
+		// the registry no longer forbids it.
 	case ProjectPHPNative:
 		if p.PublicSubdir != "" {
 			return fmt.Errorf("registry: php-native project %s must not set public_subdir", p.Name)

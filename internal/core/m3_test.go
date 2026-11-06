@@ -248,3 +248,38 @@ func TestProjectRemoveAndUpdate(t *testing.T) {
 		t.Errorf("removing twice must wrap ErrProjectNotFound, got %v", err)
 	}
 }
+
+// Regression test for the 2026-11-06 bug report: clearing the public
+// subdir of a Laravel project must actually move the generated conf
+// to the project root. UpdateProject used to force "" back to
+// "public" silently, so the conf stayed byte-identical while the
+// dashboard claimed the edit was applied. Opsi B: empty is the
+// operator's explicit choice and serves the project root.
+func TestProjectUpdateClearsPublicSubdir(t *testing.T) {
+	rig := newManagerRig(t)
+	store := fsRegistryStore{fs: rig.fs, path: rig.regPath}
+	regSvc := &RegistryService{Store: store, Files: fullEnvForManager(), Clock: &tickClock{t: time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC)}}
+	projects := &ProjectService{Registry: regSvc, Manager: rig.mgr, Files: rig.fs}
+
+	reg, _ := regSvc.Load()
+	p, _ := reg.FindProject("web-app")
+	if p.PublicSubdir != "public" {
+		t.Fatalf("fixture must start at public, got %q", p.PublicSubdir)
+	}
+	p.PublicSubdir = ""
+	if _, err := projects.UpdateProject(context.Background(), "web-app", p); err != nil {
+		t.Fatalf("UpdateProject with empty public_subdir: %v", err)
+	}
+	after, _ := regSvc.Load()
+	p2, _ := after.FindProject("web-app")
+	if p2.PublicSubdir != "" {
+		t.Errorf("registry must keep the cleared public_subdir, got %q", p2.PublicSubdir)
+	}
+	conf, _ := rig.fs.ReadFile(filepath.Join(rig.genDir, "web-app.conf"))
+	if !strings.Contains(string(conf), `Alias "/web-app" "C:/htdocs/web-app"`) {
+		t.Errorf("conf Alias must point at the project root, got:\n%s", conf)
+	}
+	if strings.Contains(string(conf), "web-app/public") {
+		t.Errorf("conf must not mention the old public dir, got:\n%s", conf)
+	}
+}

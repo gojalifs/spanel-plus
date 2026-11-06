@@ -533,6 +533,12 @@ async function removeProject(name) {
   }
 }
 
+// Opsi B: peringatan root-proyek terlihat selama subfolder publik
+// kosong untuk Laravel/CI4, bukan cuma saat submit.
+function updatePublicWarning() {
+  $('pf-public-warning').hidden = !(($('pf-type').value === 'laravel' || $('pf-type').value === 'ci4') && !$('pf-public').value.trim());
+}
+
 function fillForm(p) {
   editingName = p.name;
   showView('project-form');
@@ -544,6 +550,7 @@ function fillForm(p) {
   $('pf-path').value = p.fs_path;
   $('pf-type').value = p.type;
   $('pf-public').value = p.public_subdir || '';
+  updatePublicWarning();
   $('pf-php').value = p.php_version || '';
   $('pf-enabled').checked = p.enabled;
   $('pf-processes').innerHTML = '';
@@ -559,6 +566,7 @@ function resetForm() {
   $('project-form').reset();
   $('pf-enabled').checked = true;
   $('pf-processes').innerHTML = '';
+  updatePublicWarning();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -664,6 +672,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('project-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
+    // Opsi B (2026-11-06): subfolder publik kosong untuk Laravel/CI4
+    // berarti Apache melayani root proyek — .env ikut terekspos.
+    // Itu pilihan operator yang sah, tapi wajib dikonfirmasi eksplisit.
+    if (($('pf-type').value === 'laravel' || $('pf-type').value === 'ci4') && !$('pf-public').value.trim()) {
+      if (!window.confirm('Subfolder publik kosong: Apache akan melayani ROOT proyek ini, jadi file .env dan source code bisa diakses dari web. Lanjutkan?')) return;
+    }
     const payload = {
       name: $('pf-name').value,
       url_path: $('pf-url').value,
@@ -690,6 +704,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   $('pf-reset').addEventListener('click', resetForm);
+  $('pf-public').addEventListener('input', updatePublicWarning);
+  $('pf-type').addEventListener('change', updatePublicWarning);
 
   $('diff-apply').addEventListener('click', async () => {
     if (!pendingSetPHP) return;

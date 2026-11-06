@@ -125,9 +125,14 @@ func (s *ProjectService) UpdateProject(ctx context.Context, name string, upd Pro
 	if upd.CLIProcesses == nil {
 		upd.CLIProcesses = old.CLIProcesses
 	}
-	if (upd.Type == ProjectLaravel || upd.Type == ProjectCI4) && upd.PublicSubdir == "" {
-		upd.PublicSubdir = "public"
-	}
+	// NOTE: no silent defaulting of PublicSubdir here. AddProject
+	// still defaults "" to "public" for a NEW Laravel/CI4 project,
+	// but an update that clears the field is the operator's explicit
+	// choice (Opsi B, keputusan max 2026-11-06): empty means Apache
+	// serves the project root (TargetDir returns FSPath), and the
+	// dashboard warns about .env exposure before saving. The old
+	// code forced "" back to "public", so clearing the field
+	// silently did nothing while the dashboard claimed success.
 	candidate.Projects[idx] = upd
 	return s.apply(ctx, candidate)
 }

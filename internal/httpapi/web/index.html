@@ -127,6 +127,7 @@
                   </select>
                 </label>
                 <label>Subfolder publik <input id="pf-public" placeholder="public (Laravel/CI4) / dist (static) / kosong"></label>
+                <p class="muted" id="pf-public-warning" hidden>⚠️ Subfolder publik kosong untuk Laravel/CI4 berarti Apache melayani <b>root proyek</b> — file <code>.env</code> dan source code bisa diakses dari web. Kosongkan hanya kalau lu yakin.</p>
                 <label>Versi PHP <select id="pf-php"></select></label>
                 <label class="check"><input id="pf-enabled" type="checkbox" checked> Aktif</label>
               </div>

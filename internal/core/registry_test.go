@@ -31,6 +31,18 @@ func TestRegistryValidateStructureHappy(t *testing.T) {
 	if err := reg.ValidateStructure(); err != nil {
 		t.Fatalf("static project without php rejected: %v", err)
 	}
+	// Opsi B (2026-11-06): Laravel/CI4 with an empty public_subdir
+	// is legal — Apache serves the project root (TargetDir returns
+	// FSPath). The dashboard warns about .env exposure; the
+	// registry does not forbid it.
+	for _, typ := range []ProjectType{ProjectLaravel, ProjectCI4} {
+		reg := validRegistry()
+		reg.Projects[0].Type = typ
+		reg.Projects[0].PublicSubdir = ""
+		if err := reg.ValidateStructure(); err != nil {
+			t.Fatalf("%s without public_subdir rejected: %v", typ, err)
+		}
+	}
 }
 
 func TestRegistryValidateStructureRejections(t *testing.T) {
@@ -53,11 +65,6 @@ func TestRegistryValidateStructureRejections(t *testing.T) {
 		{"url trailing slash", func(r *Registry) { r.Projects[0].URLPath = "/web-app/" }, "url_path"},
 		{"empty fs path", func(r *Registry) { r.Projects[0].FSPath = "" }, "fs_path"},
 		{"unknown type", func(r *Registry) { r.Projects[0].Type = "wordpress" }, "unknown type"},
-		{"laravel without public", func(r *Registry) { r.Projects[0].PublicSubdir = "" }, "public_subdir"},
-		{"ci4 without public", func(r *Registry) {
-			r.Projects[0].Type = ProjectCI4
-			r.Projects[0].PublicSubdir = ""
-		}, "public_subdir"},
 		{"native with public", func(r *Registry) {
 			r.Projects[0].Type = ProjectPHPNative
 		}, "must not set public_subdir"},
