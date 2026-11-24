@@ -111,9 +111,24 @@ func (s FcgidSettings) Validate() error {
 }
 
 // PHPVersion is one installed PHP build the panel can assign.
+// Version ("8.2") stays the registry key — projects reference it,
+// and two patch builds of the same branch cannot both register.
+// FullVersion ("8.2.36") is display metadata from the probe; it is
+// omitted from registry.json while unknown (old entries predate it)
+// and DisplayVersion falls back to Version in that case.
 type PHPVersion struct {
-	Version string `json:"version"` // e.g. "8.2"
-	Path    string `json:"path"`    // folder holding php.exe / php-cgi.exe
+	Version     string `json:"version"`                // e.g. "8.2"
+	FullVersion string `json:"full_version,omitempty"` // e.g. "8.2.36"
+	Path        string `json:"path"`                   // folder holding php.exe / php-cgi.exe
+}
+
+// DisplayVersion is the version shown to the operator: the full
+// patch version when known, else the major.minor key.
+func (v PHPVersion) DisplayVersion() string {
+	if v.FullVersion != "" {
+		return v.FullVersion
+	}
+	return v.Version
 }
 
 // ProjectType enumerates the project kinds ConfigGen understands.
@@ -179,9 +194,10 @@ func (p Project) TargetDir() string {
 }
 
 var (
-	projectNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
-	phpVersionRe  = regexp.MustCompile(`^\d+\.\d+$`)
-	urlPathRe     = regexp.MustCompile(`^/[a-z0-9._/-]*$`)
+	projectNameRe    = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	phpVersionRe     = regexp.MustCompile(`^\d+\.\d+$`)
+	phpFullVersionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	urlPathRe        = regexp.MustCompile(`^/[a-z0-9._/-]*$`)
 )
 
 // FindProject returns the project with the given name, if any.
@@ -251,6 +267,9 @@ func (r Registry) ValidateStructure() error {
 	for _, v := range r.PHPVersions {
 		if !phpVersionRe.MatchString(v.Version) {
 			return fmt.Errorf("registry: php version %q must look like \"8.2\"", v.Version)
+		}
+		if v.FullVersion != "" && !phpFullVersionRe.MatchString(v.FullVersion) {
+			return fmt.Errorf("registry: php full_version %q must look like \"8.2.36\"", v.FullVersion)
 		}
 		if v.Path == "" {
 			return fmt.Errorf("registry: php %s has an empty path", v.Version)

@@ -274,6 +274,16 @@ async function loadDoctor() {
   }
 }
 
+// phpLabel: versi lengkap yang ditampilkan (8.2.36), fallback ke
+// kunci major.minor (8.2) untuk entri lama yang belum punya
+// full_version. value option/select tetap kunci "8.2" — itulah yang
+// dipakai proyek & API untuk merujuk versi ini.
+function phpLabel(v) { return v.full_version || v.version; }
+function phpLabelByKey(key) {
+  const v = registry.php_versions.find((x) => x.version === key);
+  return v ? phpLabel(v) : key;
+}
+
 function renderPHP() {
   const tbody = $('php-table').querySelector('tbody');
   tbody.innerHTML = '';
@@ -286,7 +296,7 @@ function renderPHP() {
   }
   for (const v of registry.php_versions) {
     const tr = el('tr');
-    tr.append(el('td', v.version), el('td', v.path, 'mono'));
+    tr.append(el('td', phpLabel(v)), el('td', v.path, 'mono'));
     const actions = el('td');
     actions.append(
       button('Extension', () => showModules(v.version)),
@@ -301,7 +311,7 @@ function renderPHP() {
   none.value = '';
   sel.appendChild(none);
   for (const v of registry.php_versions) {
-    const o = el('option', v.version);
+    const o = el('option', phpLabel(v));
     o.value = v.version;
     sel.appendChild(o);
   }
@@ -323,7 +333,7 @@ function extStatusText(status) {
 async function showModules(version) {
   try {
     const data = await api('GET', '/api/v1/php/' + encodeURIComponent(version) + '/extensions');
-    $('php-modules-title').textContent = 'PHP ' + version;
+    $('php-modules-title').textContent = 'PHP ' + phpLabelByKey(version);
     const list = $('php-ext-list');
     list.innerHTML = '';
     extState = { version: version, initial: {} };
@@ -394,7 +404,7 @@ async function removePHP(version) {
 function phpSelect(current, onChange) {
   const sel = el('select');
   for (const v of registry.php_versions) {
-    const o = el('option', v.version);
+    const o = el('option', phpLabel(v));
     o.value = v.version;
     if (v.version === current) o.selected = true;
     sel.appendChild(o);
@@ -427,7 +437,7 @@ function renderProjects() {
     tr.appendChild(el('td', p.type));
     const phpTd = el('td');
     if (p.type === 'static') {
-      phpTd.textContent = p.php_version || '—';
+      phpTd.textContent = p.php_version ? phpLabelByKey(p.php_version) : '—';
     } else {
       phpTd.appendChild(phpSelect(p.php_version, (v) => previewSetPHP(p.name, v)));
     }

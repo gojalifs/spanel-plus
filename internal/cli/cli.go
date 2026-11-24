@@ -547,7 +547,7 @@ func (c *CLI) runPHP(args []string) int {
 			return 0
 		}
 		for _, v := range reg.PHPVersions {
-			fmt.Fprintf(c.deps.Out, "%-6s %s\n", v.Version, v.Path)
+			fmt.Fprintf(c.deps.Out, "%-8s %s\n", v.DisplayVersion(), v.Path)
 		}
 		return 0
 	case "add":

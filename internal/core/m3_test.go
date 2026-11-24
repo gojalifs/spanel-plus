@@ -149,6 +149,12 @@ func TestPHPManagerRegister(t *testing.T) {
 	if store.saved == nil || len(store.saved.PHPVersions) != 1 {
 		t.Fatalf("registry must hold the new version, got %+v", store.saved)
 	}
+	// The full patch version probed from the binary must be stored,
+	// not just shown in the registration toast — the dashboard
+	// displays it from the registry.
+	if got := store.saved.PHPVersions[0]; got.FullVersion != "8.3.13" || got.DisplayVersion() != "8.3.13" {
+		t.Errorf("stored version = %+v, want FullVersion 8.3.13", got)
+	}
 
 	// Second registration of the same folder: refused as duplicate,
 	// and the existing php.ini stays untouched.

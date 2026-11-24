@@ -52,7 +52,7 @@ func (m *PHPManager) Register(ctx context.Context, path string) (PHPRegistration
 			"php %s di %s adalah build thread-safe (TS) — mod_fcgid membutuhkan build NTS; unduh varian 'Non Thread Safe' dari windows.php.net",
 			probe.Full, path)
 	}
-	v := PHPVersion{Version: probe.Version, Path: path}
+	v := PHPVersion{Version: probe.Version, FullVersion: probe.Full, Path: path}
 	if err := m.Registry.AddPHPVersion(v); err != nil {
 		return PHPRegistration{}, err
 	}
@@ -128,6 +128,12 @@ func (m *PHPManager) Scan(ctx context.Context) (AutoRegisterResult, error) {
 	if err != nil {
 		return res, err
 	}
+	// Full-version refreshes for already-registered folders,
+	// collected during the loop and applied to a freshly loaded
+	// registry afterwards: Register (below) Load+Save-s on its own,
+	// so writing back the loop's snapshot here would clobber
+	// versions registered in this very scan.
+	refresh := map[string]string{}
 	for _, name := range names {
 		dir := joinPath(m.ScanRoot, name)
 		if !m.Files.IsDir(dir) {
@@ -137,6 +143,15 @@ func (m *PHPManager) Scan(ctx context.Context) (AutoRegisterResult, error) {
 		for _, v := range reg.PHPVersions {
 			if samePath(v.Path, dir) {
 				registered = true
+				// Refresh the stored full version when it is
+				// missing or stale (old entries predate
+				// full_version, and a patch upgrade replaces the
+				// binaries in place). Best-effort: a probe failure
+				// here leaves the stored value alone and is not
+				// a skip — doctor already reports broken folders.
+				if probe, err := m.Prober.Probe(ctx, dir); err == nil && probe.Full != "" && probe.Full != v.FullVersion {
+					refresh[dir] = probe.Full
+				}
 				break
 			}
 		}
@@ -153,6 +168,28 @@ func (m *PHPManager) Scan(ctx context.Context) (AutoRegisterResult, error) {
 			continue
 		}
 		res.Registered = append(res.Registered, r.Version.Version)
+	}
+	if len(refresh) > 0 {
+		fresh, err := m.Registry.Load()
+		if err != nil {
+			return res, err
+		}
+		changed := false
+		for i, v := range fresh.PHPVersions {
+			for dir, full := range refresh {
+				// samePath, not ==: scan-built paths and stored
+				// paths can differ in separators and case.
+				if samePath(v.Path, dir) && full != v.FullVersion {
+					fresh.PHPVersions[i].FullVersion = full
+					changed = true
+				}
+			}
+		}
+		if changed {
+			if err := m.Registry.Save(fresh); err != nil {
+				return res, err
+			}
+		}
 	}
 	return res, nil
 }
@@ -208,7 +245,7 @@ func (m *PHPManager) ensurePHPIni(v PHPVersion) (state string, iniPath string, e
 // template lists the common ones as a checklist to enable manually.
 func RenderPHPIni(v PHPVersion, sessionDir, tmpDir string) string {
 	var b strings.Builder
-	b.WriteString("; php.ini dibuat SPanel+ untuk PHP " + v.Version + " (" + v.Path + ")\n")
+	b.WriteString("; php.ini dibuat SPanel+ untuk PHP " + v.DisplayVersion() + " (" + v.Path + ")\n")
 	b.WriteString("; Template production: error tidak ditampilkan ke pengunjung,\n")
 	b.WriteString("; OPcache aktif, path session & temp dipisah per versi.\n\n")
 	b.WriteString("display_errors = Off\n")

@@ -341,7 +341,7 @@ func (d Doctor) checkPHPVersions(reg *Registry) []Check {
 		name := "php-" + v.Version
 		if !d.Files.IsDir(v.Path) {
 			checks = append(checks, Check{name, StatusFail,
-				fmt.Sprintf("php %s folder %s is not a directory — projects on this version cannot run", v.Version, v.Path)})
+				fmt.Sprintf("php %s folder %s is not a directory — projects on this version cannot run", v.DisplayVersion(), v.Path)})
 			continue
 		}
 		missing := ""
@@ -352,10 +352,10 @@ func (d Doctor) checkPHPVersions(reg *Registry) []Check {
 		}
 		if missing != "" {
 			checks = append(checks, Check{name, StatusFail,
-				fmt.Sprintf("php %s at %s is missing %s— not a usable PHP build folder", v.Version, v.Path, missing)})
+				fmt.Sprintf("php %s at %s is missing %s— not a usable PHP build folder", v.DisplayVersion(), v.Path, missing)})
 			continue
 		}
-		checks = append(checks, Check{name, StatusPass, fmt.Sprintf("php %s usable at %s", v.Version, v.Path)})
+		checks = append(checks, Check{name, StatusPass, fmt.Sprintf("php %s usable at %s", v.DisplayVersion(), v.Path)})
 	}
 	return checks
 }

@@ -83,6 +83,64 @@ func TestScanRegistersNewBuildsSkipsRest(t *testing.T) {
 	}
 }
 
+// Scan must backfill the full patch version for folders that were
+// registered before full_version existed, refresh it when a patch
+// upgrade replaces the binaries in place, and leave it alone when
+// the probe fails (never a skip — doctor reports broken folders).
+func TestScanBackfillsFullVersion(t *testing.T) {
+	mgr, fs := newScanRig(t)
+	ctx := context.Background()
+	_ = fs.MkdirAll(`C:\php\8.2`)
+	_ = fs.WriteFile(`C:\php\8.2/php.exe`, nil)
+	_ = fs.WriteFile(`C:\php\8.2/php-cgi.exe`, nil)
+	// Pre-seed an old-style entry: version key only, no full_version.
+	if err := mgr.Registry.Save(Registry{PHPVersions: []PHPVersion{
+		{Version: "8.2", Path: `C:\php\8.2`},
+	}}); err != nil {
+		t.Fatalf("seed registry: %v", err)
+	}
+	mgr.Prober = dirProber{byDir: map[string]PHPProbeResult{
+		`C:/php/8.2`: {Version: "8.2", Full: "8.2.36", NTS: true, Arch: "x64"},
+	}}
+	res, err := mgr.Scan(ctx)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(res.Registered) != 0 || len(res.Skipped) != 0 {
+		t.Errorf("backfill scan must register/skip nothing, got %+v", res)
+	}
+	reg, _ := mgr.Registry.Load()
+	if got := reg.PHPVersions[0].FullVersion; got != "8.2.36" {
+		t.Errorf("FullVersion after scan = %q, want 8.2.36", got)
+	}
+
+	// Patch upgrade in place: the stored full version must follow.
+	mgr.Prober = dirProber{byDir: map[string]PHPProbeResult{
+		`C:/php/8.2`: {Version: "8.2", Full: "8.2.37", NTS: true, Arch: "x64"},
+	}}
+	if _, err := mgr.Scan(ctx); err != nil {
+		t.Fatalf("second Scan: %v", err)
+	}
+	reg, _ = mgr.Registry.Load()
+	if got := reg.PHPVersions[0].FullVersion; got != "8.2.37" {
+		t.Errorf("FullVersion after upgrade = %q, want 8.2.37", got)
+	}
+
+	// Probe failure: keep the last known full version, no skip.
+	mgr.Prober = dirProber{errs: map[string]error{`C:/php/8.2`: errors.New("php.exe gagal jalan")}}
+	res, err = mgr.Scan(ctx)
+	if err != nil {
+		t.Fatalf("third Scan: %v", err)
+	}
+	if len(res.Skipped) != 0 {
+		t.Errorf("failed refresh must not skip, got %+v", res.Skipped)
+	}
+	reg, _ = mgr.Registry.Load()
+	if got := reg.PHPVersions[0].FullVersion; got != "8.2.37" {
+		t.Errorf("FullVersion after failed probe = %q, want 8.2.37 kept", got)
+	}
+}
+
 func TestScanDuplicateVersionFromAnotherFolder(t *testing.T) {
 	mgr, _ := newScanRig(t)
 	ctx := context.Background()

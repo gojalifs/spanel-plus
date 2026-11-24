@@ -45,6 +45,22 @@ func TestRegistryValidateStructureHappy(t *testing.T) {
 	}
 }
 
+func TestPHPVersionDisplayVersion(t *testing.T) {
+	// Old entries predate full_version: show the major.minor key.
+	if got := (PHPVersion{Version: "8.2", Path: `C:\php\8.2`}).DisplayVersion(); got != "8.2" {
+		t.Errorf("DisplayVersion without full = %q, want 8.2", got)
+	}
+	if got := (PHPVersion{Version: "8.2", FullVersion: "8.2.36", Path: `C:\php\8.2`}).DisplayVersion(); got != "8.2.36" {
+		t.Errorf("DisplayVersion with full = %q, want 8.2.36", got)
+	}
+	// A full version is legal and survives validation.
+	reg := validRegistry()
+	reg.PHPVersions[0].FullVersion = "8.2.36"
+	if err := reg.ValidateStructure(); err != nil {
+		t.Fatalf("registry with full_version rejected: %v", err)
+	}
+}
+
 func TestRegistryValidateStructureRejections(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -65,6 +81,7 @@ func TestRegistryValidateStructureRejections(t *testing.T) {
 		{"url trailing slash", func(r *Registry) { r.Projects[0].URLPath = "/web-app/" }, "url_path"},
 		{"empty fs path", func(r *Registry) { r.Projects[0].FSPath = "" }, "fs_path"},
 		{"unknown type", func(r *Registry) { r.Projects[0].Type = "wordpress" }, "unknown type"},
+		{"bad full version", func(r *Registry) { r.PHPVersions[0].FullVersion = "8.2" }, "full_version"},
 		{"native with public", func(r *Registry) {
 			r.Projects[0].Type = ProjectPHPNative
 		}, "must not set public_subdir"},
