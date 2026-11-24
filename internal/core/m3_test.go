@@ -157,9 +157,107 @@ func TestPHPManagerRegister(t *testing.T) {
 	}
 
 	// Second registration of the same folder: refused as duplicate,
-	// and the existing php.ini stays untouched.
+	// and the existing php.ini stays untouched. The error must point
+	// at Upgrade — "add" can never be the patch-upgrade path.
 	if _, err := mgr.Register(context.Background(), `C:\php\8.3`); !errors.Is(err, ErrPHPVersionExists) {
 		t.Errorf("duplicate register must wrap ErrPHPVersionExists, got %v", err)
+	} else if !strings.Contains(err.Error(), "upgrade") {
+		t.Errorf("duplicate register error must hint at upgrade, got %v", err)
+	}
+}
+
+// fakeApplier records the candidate it was asked to apply without
+// committing anything — the real ApacheManager.Apply commits the
+// registry only after httpd -t + restart pass.
+type fakeApplier struct {
+	applied *Registry
+	err     error
+}
+
+func (f *fakeApplier) Apply(_ context.Context, reg Registry) (ApplyResult, error) {
+	if f.err != nil {
+		return ApplyResult{}, f.err
+	}
+	cp := reg.Clone()
+	f.applied = &cp
+	return ApplyResult{FilesWritten: []string{"web-app.conf"}}, nil
+}
+
+func seedPHPVersion(t *testing.T, mgr *PHPManager, v PHPVersion) {
+	t.Helper()
+	if err := mgr.Registry.Save(Registry{PHPVersions: []PHPVersion{v}}); err != nil {
+		t.Fatalf("seed registry: %v", err)
+	}
+}
+
+// Upgrade moves a registered branch to a new folder (8.2.35 ->
+// 8.2.36) through the applier as a candidate: the stored registry
+// itself must not change until the apply commits.
+func TestPHPManagerUpgrade(t *testing.T) {
+	probe := PHPProbeResult{Version: "8.2", Full: "8.2.36", NTS: true, Arch: "x64", Modules: []string{"curl"}}
+	mgr, fs, _ := newPHPManagerRig(t, probe)
+	seedPHPVersion(t, mgr, PHPVersion{Version: "8.2", FullVersion: "8.2.35", Path: `C:\php\8.2`})
+	applier := &fakeApplier{}
+	mgr.Applier = applier
+	_ = fs.MkdirAll(`C:\php\8.2-new`)
+	reg, applyRes, err := mgr.Upgrade(context.Background(), `C:\php\8.2-new`)
+	if err != nil {
+		t.Fatalf("Upgrade: %v", err)
+	}
+	if reg.Full != "8.2.36" || reg.PHPIni != "generated" {
+		t.Errorf("upgrade registration = %+v", reg)
+	}
+	if len(applyRes.FilesWritten) != 1 {
+		t.Errorf("upgrade must return the apply result, got %+v", applyRes)
+	}
+	if applier.applied == nil {
+		t.Fatal("Upgrade must apply a candidate registry")
+	}
+	got := applier.applied.PHPVersions[0]
+	if got.Path != `C:\php\8.2-new` || got.FullVersion != "8.2.36" {
+		t.Errorf("applied candidate = %+v, want new folder + 8.2.36", got)
+	}
+	// The fake applier commits nothing: the stored registry must
+	// still point at the old folder (the real Apply commits it).
+	stored, _ := mgr.Registry.Load()
+	if stored.PHPVersions[0].Path != `C:\php\8.2` || stored.PHPVersions[0].FullVersion != "8.2.35" {
+		t.Errorf("stored registry changed before apply committed: %+v", stored.PHPVersions[0])
+	}
+}
+
+func TestPHPManagerUpgradeRefusals(t *testing.T) {
+	ctx := context.Background()
+	probe := PHPProbeResult{Version: "8.2", Full: "8.2.36", NTS: true, Arch: "x64"}
+	mgr, fs, _ := newPHPManagerRig(t, probe)
+	mgr.Applier = &fakeApplier{}
+	_ = fs.MkdirAll(`C:\php\8.2-new`)
+
+	// Unregistered branch: upgrade is not the way to add a version.
+	if _, _, err := mgr.Upgrade(ctx, `C:\php\8.2-new`); err == nil || !strings.Contains(err.Error(), "belum terdaftar") {
+		t.Errorf("upgrade of unregistered branch must say belum terdaftar, got %v", err)
+	}
+
+	// Same folder, same patch: nothing to upgrade.
+	seedPHPVersion(t, mgr, PHPVersion{Version: "8.2", FullVersion: "8.2.36", Path: `C:\php\8.2`})
+	if _, _, err := mgr.Upgrade(ctx, `C:\php\8.2`); err == nil || !strings.Contains(err.Error(), "tidak ada yang di-upgrade") {
+		t.Errorf("same-folder same-patch upgrade must refuse, got %v", err)
+	}
+
+	// Thread-safe build is refused like Register refuses it.
+	mgr.Prober = fakeProber{res: PHPProbeResult{Version: "8.2", Full: "8.2.36", NTS: false, Arch: "x64"}}
+	if _, _, err := mgr.Upgrade(ctx, `C:\php\8.2-new`); err == nil || !strings.Contains(err.Error(), "NTS") {
+		t.Errorf("TS upgrade must be refused with an NTS explanation, got %v", err)
+	}
+
+	// A failing apply must leave the stored registry untouched.
+	mgr.Prober = fakeProber{res: probe}
+	mgr.Applier = &fakeApplier{err: errors.New("httpd -t gagal")}
+	if _, _, err := mgr.Upgrade(ctx, `C:\php\8.2-new`); err == nil || !strings.Contains(err.Error(), "httpd -t gagal") {
+		t.Errorf("failed apply must surface its error, got %v", err)
+	}
+	stored, _ := mgr.Registry.Load()
+	if stored.PHPVersions[0].Path != `C:\php\8.2` {
+		t.Errorf("failed upgrade changed the stored registry: %+v", stored.PHPVersions[0])
 	}
 }
 

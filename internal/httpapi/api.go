@@ -52,6 +52,7 @@ func (a *api) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/projects/{name}/preview-set-php", a.previewSetPHP)
 	mux.HandleFunc("GET /api/v1/projects/{name}/warnings", a.projectWarnings)
 	mux.HandleFunc("POST /api/v1/php", a.registerPHP)
+	mux.HandleFunc("POST /api/v1/php/upgrade", a.upgradePHP)
 	mux.HandleFunc("POST /api/v1/php/scan", a.scanPHP)
 	mux.HandleFunc("DELETE /api/v1/php/{version}", a.removePHP)
 	mux.HandleFunc("GET /api/v1/php/{version}/modules", a.phpModules)
@@ -385,6 +386,25 @@ func (a *api) registerPHP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, reg)
+}
+
+// upgradePHP moves a registered PHP branch to a new folder (patch
+// upgrade) and re-applies Apache config in the same operation.
+func (a *api) upgradePHP(w http.ResponseWriter, r *http.Request) {
+	_, php, _ := a.services(w)
+	if php == nil {
+		return
+	}
+	var req phpRegisterRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	reg, applyRes, err := php.Upgrade(r.Context(), req.Path)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"registration": reg, "apply": applyRes})
 }
 
 // scanPHP runs the PHP folder scan (same scan as panel startup) and

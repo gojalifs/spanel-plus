@@ -19,6 +19,16 @@ type PHPRegistration struct {
 	Warnings []string   `json:"warnings,omitempty"`
 }
 
+// RegistryApplier applies a candidate registry the way
+// ApacheManager.Apply does: generated config + httpd -t + restart,
+// and the registry itself is only committed once all of that
+// passes. PHPManager.Upgrade depends on this interface, not on the
+// concrete manager, so an upgrade can never leave the registry
+// pointing at a new folder while Apache still serves the old one.
+type RegistryApplier interface {
+	Apply(ctx context.Context, candidate Registry) (ApplyResult, error)
+}
+
 // PHPManager is the F2 PHP version manager: it registers PHP builds
 // by probing the real binaries (never trusting a typed version
 // number), refuses thread-safe builds (mod_fcgid needs NTS), and
@@ -27,6 +37,10 @@ type PHPManager struct {
 	Registry *RegistryService
 	Prober   PHPProber
 	Files    FileStore
+	// Applier applies a candidate registry (ApacheManager.Apply).
+	// Required only by Upgrade; Register/Scan/Remove never apply.
+	// Wired by main; nil means upgrades are refused, never half-done.
+	Applier RegistryApplier
 	// RuntimeBase is the panel-owned folder for per-version runtime
 	// dirs (session & temp paths written into generated php.ini).
 	RuntimeBase string
@@ -36,24 +50,43 @@ type PHPManager struct {
 	ScanRoot string
 }
 
+// probeFolder probes one PHP folder and refuses thread-safe builds
+// (mod_fcgid needs NTS). Shared by Register and Upgrade so both
+// reject a bad folder with the same message before changing anything.
+func (m *PHPManager) probeFolder(ctx context.Context, path string) (probe PHPProbeResult, cleanPath string, err error) {
+	cleanPath = strings.TrimSpace(path)
+	if cleanPath == "" {
+		return PHPProbeResult{}, "", fmt.Errorf("php folder path is empty")
+	}
+	probe, err = m.Prober.Probe(ctx, cleanPath)
+	if err != nil {
+		return PHPProbeResult{}, "", err
+	}
+	if !probe.NTS {
+		return PHPProbeResult{}, "", fmt.Errorf(
+			"php %s di %s adalah build thread-safe (TS) — mod_fcgid membutuhkan build NTS; unduh varian 'Non Thread Safe' dari windows.php.net",
+			probe.Full, cleanPath)
+	}
+	return probe, cleanPath, nil
+}
+
 // Register probes the folder at path, validates the build, registers
 // the DETECTED version, and ensures a php.ini exists.
 func (m *PHPManager) Register(ctx context.Context, path string) (PHPRegistration, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return PHPRegistration{}, fmt.Errorf("php folder path is empty")
-	}
-	probe, err := m.Prober.Probe(ctx, path)
+	probe, path, err := m.probeFolder(ctx, path)
 	if err != nil {
 		return PHPRegistration{}, err
 	}
-	if !probe.NTS {
-		return PHPRegistration{}, fmt.Errorf(
-			"php %s di %s adalah build thread-safe (TS) — mod_fcgid membutuhkan build NTS; unduh varian 'Non Thread Safe' dari windows.php.net",
-			probe.Full, path)
-	}
 	v := PHPVersion{Version: probe.Version, FullVersion: probe.Full, Path: path}
 	if err := m.Registry.AddPHPVersion(v); err != nil {
+		if errors.Is(err, ErrPHPVersionExists) {
+			// The exact error max hit upgrading 8.2.35 -> 8.2.36:
+			// the branch key is taken, so "add" can never be the
+			// upgrade path. Say so, with the command that is.
+			return PHPRegistration{}, fmt.Errorf(
+				"php %s sudah terdaftar dari folder lain — untuk pindah ke folder ini pakai upgrade: panel php upgrade --path %s (atau tombol Upgrade di dashboard): %w",
+				probe.Version, path, err)
+		}
 		return PHPRegistration{}, err
 	}
 	iniState, iniPath, err := m.ensurePHPIni(v)
@@ -74,6 +107,76 @@ func (m *PHPManager) Register(ctx context.Context, path string) (PHPRegistration
 			"arsitektur PHP terdeteksi "+probe.Arch+" — pastikan cocok dengan arsitektur Apache (umumnya x64).")
 	}
 	return reg, nil
+}
+
+// Upgrade moves an already-registered PHP branch to a new folder —
+// the patch-upgrade case (8.2.35 -> 8.2.36): the branch key stays
+// "8.2", so every project on that branch keeps working, now on the
+// new binaries. The new folder is probed exactly like Register
+// (NTS required, php.ini seeded when missing), then the swap goes
+// through the Applier as a candidate registry: generated confs are
+// rewritten to the new FcgidWrapper path, httpd -t runs, Apache
+// restarts, and only then is the registry committed. If any step
+// fails, the stored registry still points at the old folder and the
+// old binaries keep serving — an upgrade never half-applies.
+// It refuses: an unregistered branch (use Register/Add), the same
+// folder at the same patch (nothing to upgrade), and a missing
+// Applier (wiring bug — refused loud, never applied half-way).
+// Note: running CLI processes (queue workers, scheduler) resolve
+// their php.exe at start, like SetPHP — they keep the old binary
+// until restarted from the dashboard.
+func (m *PHPManager) Upgrade(ctx context.Context, path string) (PHPRegistration, ApplyResult, error) {
+	probe, path, err := m.probeFolder(ctx, path)
+	if err != nil {
+		return PHPRegistration{}, ApplyResult{}, err
+	}
+	reg, err := m.Registry.Load()
+	if err != nil {
+		return PHPRegistration{}, ApplyResult{}, err
+	}
+	old, ok := reg.FindPHP(probe.Version)
+	if !ok {
+		return PHPRegistration{}, ApplyResult{}, fmt.Errorf(
+			"php %s belum terdaftar — daftarkan dulu dengan: panel php add --path %s",
+			probe.Version, path)
+	}
+	if samePath(old.Path, path) && probe.Full == old.FullVersion {
+		return PHPRegistration{}, ApplyResult{}, fmt.Errorf(
+			"php %s sudah terdaftar dari folder ini — tidak ada yang di-upgrade", probe.Full)
+	}
+	v := PHPVersion{Version: probe.Version, FullVersion: probe.Full, Path: path}
+	candidate := reg.Clone()
+	for i, pv := range candidate.PHPVersions {
+		if pv.Version == v.Version {
+			candidate.PHPVersions[i] = v
+		}
+	}
+	iniState, iniPath, err := m.ensurePHPIni(v)
+	if err != nil {
+		return PHPRegistration{}, ApplyResult{}, err
+	}
+	if m.Applier == nil {
+		return PHPRegistration{}, ApplyResult{}, fmt.Errorf(
+			"upgrade php %s tidak bisa jalan: applier belum di-wire (bug wiring panel)", probe.Version)
+	}
+	applyRes, err := m.Applier.Apply(ctx, candidate)
+	if err != nil {
+		return PHPRegistration{}, ApplyResult{}, err
+	}
+	out := PHPRegistration{
+		Version: v,
+		Full:    probe.Full,
+		NTS:     probe.NTS,
+		Arch:    probe.Arch,
+		Modules: probe.Modules,
+		PHPIni:  iniState,
+		IniPath: iniPath,
+	}
+	if probe.Arch != "" && probe.Arch != "x64" {
+		out.Warnings = append(out.Warnings,
+			"arsitektur PHP terdeteksi "+probe.Arch+" — pastikan cocok dengan arsitektur Apache (umumnya x64).")
+	}
+	return out, applyRes, nil
 }
 
 // AutoRegisterResult reports one PHP folder scan.
@@ -162,7 +265,7 @@ func (m *PHPManager) Scan(ctx context.Context) (AutoRegisterResult, error) {
 		if err != nil {
 			reason := err.Error()
 			if errors.Is(err, ErrPHPVersionExists) {
-				reason = "versi sudah terdaftar dari folder lain"
+				reason = "versi sudah terdaftar dari folder lain — pakai Upgrade (dashboard / panel php upgrade) untuk pindah ke folder ini"
 			}
 			res.Skipped = append(res.Skipped, AutoRegisterSkip{Path: dir, Reason: reason})
 			continue

@@ -300,6 +300,7 @@ function renderPHP() {
     const actions = el('td');
     actions.append(
       button('Extension', () => showModules(v.version)),
+      button('Upgrade', () => upgradePHP(v)),
       button('Hapus', () => removePHP(v.version)),
     );
     tr.appendChild(actions);
@@ -395,6 +396,25 @@ async function removePHP(version) {
   try {
     await api('DELETE', '/api/v1/php/' + encodeURIComponent(version));
     toast('PHP ' + version + ' dihapus dari registry.');
+    loadAll();
+  } catch (e) {
+    toast(e.message, false);
+  }
+}
+
+// Upgrade patch: pindahkan cabang PHP yang sudah terdaftar ke folder
+// baru (mis. 8.2.35 -> 8.2.36). Kunci versi tetap, semua proyek di
+// cabang itu ikut pindah, dan config Apache di-apply ulang dalam
+// operasi yang sama — kalau apply gagal, registry tetap menunjuk
+// folder lama. Folder baru wajib berisi php.ini + DLL extension yang
+// lu pakai (atau panel generate php.ini template bila belum ada).
+async function upgradePHP(v) {
+  const path = window.prompt('Folder PHP baru untuk ' + phpLabel(v) + ' (mis. C:\\php\\8.2.36):', v.path);
+  if (!path || !path.trim()) return;
+  try {
+    const res = await api('POST', '/api/v1/php/upgrade', { path: path.trim() });
+    const reg = res.registration;
+    toast('PHP ' + phpLabel(v) + ' → ' + (reg.full_version || reg.version.version) + ' ter-upgrade & di-apply; php.ini: ' + reg.php_ini + '.');
     loadAll();
   } catch (e) {
     toast(e.message, false);

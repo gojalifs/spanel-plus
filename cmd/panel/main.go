@@ -134,6 +134,7 @@ func run() int {
 			Registry:    registrySvc,
 			Prober:      platform.ExecPHPProber{Runner: platform.ExecRunner{}},
 			Files:       fileStore,
+			Applier:     manager,
 			RuntimeBase: filepath.Join(wireCfg.DataDir, "php-runtime"),
 			// M0 layout: the Apache home's parent holds php/.
 			ScanRoot: config.PHPScanRoot(apacheHome),

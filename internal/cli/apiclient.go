@@ -97,6 +97,7 @@ type APIClient interface {
 	ProjectConfig(name string) (string, error)
 	ProjectWarnings(name string) ([]core.Warning, error)
 	RegisterPHP(path string) (core.PHPRegistration, error)
+	UpgradePHP(path string) (core.PHPRegistration, core.ApplyResult, error)
 	RemovePHP(version string) error
 	PHPModules(version string) ([]string, error)
 	ScanPHP() (core.AutoRegisterResult, error)
@@ -294,6 +295,15 @@ func (c *httpAPIClient) RegisterPHP(path string) (core.PHPRegistration, error) {
 	var reg core.PHPRegistration
 	err := c.call(http.MethodPost, "/api/v1/php", map[string]string{"path": path}, &reg)
 	return reg, err
+}
+
+func (c *httpAPIClient) UpgradePHP(path string) (core.PHPRegistration, core.ApplyResult, error) {
+	var res struct {
+		Registration core.PHPRegistration `json:"registration"`
+		Apply        core.ApplyResult     `json:"apply"`
+	}
+	err := c.call(http.MethodPost, "/api/v1/php/upgrade", map[string]string{"path": path}, &res)
+	return res.Registration, res.Apply, err
 }
 
 func (c *httpAPIClient) RemovePHP(version string) error {

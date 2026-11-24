@@ -64,6 +64,10 @@ type fakePHP struct{ removed string }
 func (f *fakePHP) Register(context.Context, string) (core.PHPRegistration, error) {
 	return core.PHPRegistration{Version: core.PHPVersion{Version: "8.3"}, PHPIni: "generated"}, nil
 }
+
+func (f *fakePHP) Upgrade(context.Context, string) (core.PHPRegistration, core.ApplyResult, error) {
+	return core.PHPRegistration{Version: core.PHPVersion{Version: "8.3", FullVersion: "8.3.14"}, Full: "8.3.14", PHPIni: "generated"}, core.ApplyResult{FilesWritten: []string{"app.conf"}}, nil
+}
 func (f *fakePHP) Remove(v string) error { f.removed = v; return nil }
 func (f *fakePHP) Modules(context.Context, string) ([]string, error) {
 	return []string{"curl"}, nil
@@ -206,6 +210,10 @@ func TestPHPAndApacheEndpoints(t *testing.T) {
 	rec := call(t, h, http.MethodPost, "/api/v1/php", `{"path":"C:/php/8.3"}`)
 	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"8.3"`) {
 		t.Errorf("register php = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = call(t, h, http.MethodPost, "/api/v1/php/upgrade", `{"path":"C:/php/8.3-new"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"8.3.14"`) || !strings.Contains(rec.Body.String(), `"apply"`) {
+		t.Errorf("upgrade php = %d %s", rec.Code, rec.Body.String())
 	}
 	rec = call(t, h, http.MethodGet, "/api/v1/php/8.3/modules", "")
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "curl") {

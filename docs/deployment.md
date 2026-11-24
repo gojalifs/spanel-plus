@@ -224,6 +224,20 @@ tidak hilang, hanya perlu login ulang.
   Panel mem-probe `php -v`/`php -m`, mendaftarkan versi yang
   terdeteksi, dan **menolak build TS** (hanya NTS yang dipakai
   `mod_fcgid`). `php.ini` produksi hanya dibuat bila belum ada.
+- **Upgrade patch PHP** (mis. 8.2.35 → 8.2.36): cabang PHP
+  berkunci major.minor, jadi folder patch baru **tidak bisa**
+  didaftarkan berdampingan dengan `add` — pakai Upgrade:
+  dashboard → Versi PHP → tombol **Upgrade** di baris versi itu,
+  atau CLI `C:\Panel\panel.exe php upgrade --path <folder-php-baru>`.
+  Upgrade mem-probe folder baru (NTS wajib, `php.ini` dibuat bila
+  belum ada), lalu memindahkan pendaftaran cabang itu ke folder baru
+  dan me-apply ulang config Apache dalam satu operasi — semua proyek
+  di cabang itu ikut pindah tanpa edit proyek. Bila apply gagal
+  (`httpd -t` / restart), registry tetap menunjuk folder lama dan
+  binary lama tetap melayani. Sebelum upgrade, salin `php.ini`
+  custom + DLL extension (mis. sqlsrv) ke folder baru; proses CLI
+  yang sedang jalan (queue worker, scheduler) tetap memakai binary
+  lama sampai di-restart dari dashboard.
 - **PHP auto-register**: panel juga memindai folder
   `<root Apache>/php/` (layout M0: `C:\m0\Apache24` →
   `C:\m0\php\`) setiap kali service start, dan mendaftarkan

@@ -25,6 +25,10 @@ type ProjectOps interface {
 // PHPOps is the PHP version manager surface for the API.
 type PHPOps interface {
 	Register(ctx context.Context, path string) (core.PHPRegistration, error)
+	// Upgrade moves a registered branch to a new folder (patch
+	// upgrade, e.g. 8.2.35 -> 8.2.36) and re-applies Apache config
+	// in the same operation; the ApplyResult is the apply outcome.
+	Upgrade(ctx context.Context, path string) (core.PHPRegistration, core.ApplyResult, error)
 	Remove(version string) error
 	Modules(ctx context.Context, version string) ([]string, error)
 	Extensions(ctx context.Context, version string) (core.PHPExtensionInventory, error)

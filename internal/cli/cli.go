@@ -529,7 +529,7 @@ func (c *CLI) runProject(args []string) int {
 
 func (c *CLI) runPHP(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(c.deps.ErrOut, "usage: panel php list|add|remove|modules|scan ...")
+		fmt.Fprintln(c.deps.ErrOut, "usage: panel php list|add|upgrade|remove|modules|scan ...")
 		return 2
 	}
 	client, code := c.apiClient()
@@ -564,6 +564,26 @@ func (c *CLI) runPHP(args []string) int {
 		}
 		fmt.Fprintf(c.deps.Out, "PHP %s terdaftar (%s) — terdeteksi %s %s %s, php.ini: %s.\n",
 			reg.Version.Version, reg.Version.Path, reg.Full, map[bool]string{true: "NTS", false: "TS"}[reg.NTS], reg.Arch, reg.PHPIni)
+		for _, w := range reg.Warnings {
+			fmt.Fprintf(c.deps.Out, "PERINGATAN: %s\n", w)
+		}
+		return 0
+	case "upgrade":
+		// Patch upgrade: pindahkan cabang yang sudah terdaftar ke
+		// folder baru (mis. 8.2.35 -> 8.2.36). Kunci versi tetap,
+		// semua proyek di cabang itu ikut pindah, dan config
+		// Apache di-apply ulang dalam operasi yang sama.
+		_, flags, err := parseFlags(args[1:])
+		if err != nil {
+			fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+			return 2
+		}
+		reg, applyRes, err := client.UpgradePHP(flags["path"])
+		if err != nil {
+			return c.apiErr(err)
+		}
+		fmt.Fprintf(c.deps.Out, "PHP %s ter-upgrade (%s) — terdeteksi %s %s %s, php.ini: %s; Apache di-apply ulang (%d file conf ditulis).\n",
+			reg.Version.Version, reg.Version.Path, reg.Full, map[bool]string{true: "NTS", false: "TS"}[reg.NTS], reg.Arch, reg.PHPIni, len(applyRes.FilesWritten))
 		for _, w := range reg.Warnings {
 			fmt.Fprintf(c.deps.Out, "PERINGATAN: %s\n", w)
 		}
