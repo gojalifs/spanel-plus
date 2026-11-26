@@ -88,6 +88,9 @@ type fakeApache struct{ restarted bool }
 func (f *fakeApache) Status() (string, error)          { return "running", nil }
 func (f *fakeApache) Restart() error                   { f.restarted = true; return nil }
 func (f *fakeApache) TestConfig(context.Context) error { return nil }
+func (f *fakeApache) ApacheInfo(context.Context) (core.ApacheInfo, error) {
+	return core.ApacheInfo{Version: "2.4.69", Home: `C:\apache`, ModFcgid: true, RotateLogs: true}, nil
+}
 func (f *fakeApache) ListConfigFiles() ([]core.ApacheConfigFile, error) {
 	return []core.ApacheConfigFile{{Name: "httpd.conf", Generated: false, Durable: true}}, nil
 }
@@ -202,6 +205,22 @@ func TestPreviewAndErrorMapping(t *testing.T) {
 	rec = call(t, h, http.MethodPost, "/api/v1/projects/app/set-php", `{"version":"8.3"}`)
 	if rec.Code != http.StatusBadGateway {
 		t.Errorf("apply failure must be 502, got %d", rec.Code)
+	}
+}
+
+func TestAboutEndpoint(t *testing.T) {
+	h, _ := apiHandler(t)
+	rec := call(t, h, http.MethodGet, "/api/v1/about", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("about = %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	// Panel identity comes from buildinfo; Apache patch version and
+	// the registered PHP version come from the fakes.
+	for _, want := range []string{`"name":"SPanel+"`, `"version":"2.4.69"`, `"home":"C:\\apache"`, `"mod_fcgid":true`, `"version":"8.2"`, `"go_version":"go`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("about body must contain %s, got %s", want, body)
+		}
 	}
 }
 

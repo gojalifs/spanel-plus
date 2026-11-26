@@ -2,6 +2,18 @@
 // Values can be overridden at build time with -ldflags -X.
 package buildinfo
 
+import "runtime"
+
+// GoVersion is the Go toolchain the binary was built with
+// (runtime.Version, e.g. "go1.27.3").
+func GoVersion() string { return runtime.Version() }
+
+// GOOS is the target operating system (e.g. "windows").
+func GOOS() string { return runtime.GOOS }
+
+// GOARCH is the target architecture (e.g. "amd64").
+func GOARCH() string { return runtime.GOARCH }
+
 var (
 	// Version is the panel release version (M1 = first Go skeleton;
 	// 0.2.0-m1 adds the desktop WebView2 mode; 0.3.0-m2 adds the

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -195,8 +194,6 @@ func (d Doctor) resolveApacheHome(in DoctorInput) (string, Check) {
 	return ResolveApacheHome(d.Files, in.ApacheHome, in.Candidates)
 }
 
-var apacheVersionRe = regexp.MustCompile(`Apache/(\d+\.\d+\.\d+)`)
-
 func (d Doctor) checkHTTPdVersion(ctx context.Context, home string) Check {
 	httpd := filepath.Join(home, "bin", "httpd.exe")
 	if !d.Files.Exists(httpd) {
@@ -208,12 +205,11 @@ func (d Doctor) checkHTTPdVersion(ctx context.Context, home string) Check {
 		return Check{"httpd-version", StatusFail,
 			fmt.Sprintf("running httpd -v failed: %v (output: %s)", err, strings.TrimSpace(out))}
 	}
-	m := apacheVersionRe.FindStringSubmatch(out)
-	if m == nil {
-		return Check{"httpd-version", StatusFail,
-			fmt.Sprintf("could not parse Apache version from httpd -v output: %q", strings.TrimSpace(out))}
+	ver, err := ParseApacheVersionOutput(out)
+	if err != nil {
+		return Check{"httpd-version", StatusFail, err.Error()}
 	}
-	return Check{"httpd-version", StatusPass, "Apache " + m[1]}
+	return Check{"httpd-version", StatusPass, "Apache " + ver}
 }
 
 func (d Doctor) checkModFcgid(home string) Check {

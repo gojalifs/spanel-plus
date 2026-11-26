@@ -20,6 +20,7 @@
       <button type="button" class="nav-item" data-view="apache-logs">Log Apache</button>
       <button type="button" class="nav-item" data-view="tls">TLS/HTTPS</button>
       <button type="button" class="nav-item" data-view="apache-config">Konfigurasi Apache</button>
+      <button type="button" class="nav-item" data-view="about">About</button>
     </nav>
     <div class="sidebar-foot muted">port {{.Port}} · sesi 10 menit tanpa aktivitas</div>
   </aside>
@@ -274,6 +275,30 @@
               <button type="button" id="apache-config-save">Simpan (tes + restart otomatis)</button>
             </p>
             <p class="muted" id="apache-config-note"></p>
+          </section>
+        </section>
+
+        <section class="view" id="view-about" hidden>
+          <section class="card">
+            <h2>Aplikasi</h2>
+            <table>
+              <tbody id="about-panel-body"><tr><td colspan="2" class="muted">Memuat…</td></tr></tbody>
+            </table>
+            <p class="muted">SPanel+ — panel admin Windows untuk hosting multi-PHP: satu instance Apache, routing per path, satu versi PHP per proyek via mod_fcgid. Repo: <code>gojalifs/spanel-plus</code>.</p>
+          </section>
+          <section class="card">
+            <h2>Apache (HTTP server utama)</h2>
+            <table>
+              <tbody id="about-apache-body"><tr><td colspan="2" class="muted">Memuat…</td></tr></tbody>
+            </table>
+            <p class="muted">Versi dibaca live dari <code>httpd -v</code> setiap kali halaman ini dibuka. Versi mod_fcgid tidak ditampilkan karena tidak bisa dibaca dari binary-nya (<code>httpd -M</code> hanya menyebut nama modul) — yang dilaporkan hanya status terpasang.</p>
+          </section>
+          <section class="card">
+            <h2>Versi PHP</h2>
+            <table>
+              <thead><tr><th>Versi</th><th>Folder</th></tr></thead>
+              <tbody id="about-php-body"><tr><td colspan="2" class="muted">Memuat…</td></tr></tbody>
+            </table>
           </section>
         </section>
       </div>

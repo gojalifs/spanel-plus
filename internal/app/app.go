@@ -80,6 +80,11 @@ func (a *Application) Auth() *core.AuthService { return a.auth }
 // reads its tail from here.
 func (a *Application) LogDir() string { return a.cfg.LogDir }
 
+// DataDir is the panel data folder (registry.json, admin.json,
+// generated files, backups) — shown on the About page so a support
+// question can be answered with one screenshot.
+func (a *Application) DataDir() string { return a.cfg.DataDir }
+
 // Audit returns the attached audit sink, or a discarding one.
 func (a *Application) Audit() core.AuditLogger {
 	if a.audit == nil {

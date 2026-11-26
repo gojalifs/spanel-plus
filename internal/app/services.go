@@ -42,6 +42,9 @@ type ApacheOps interface {
 	Status() (string, error)
 	Restart() error
 	TestConfig(ctx context.Context) error
+	// ApacheInfo probes the installed Apache (httpd -v) for the
+	// About page: patch version, home, mod_fcgid/rotatelogs presence.
+	ApacheInfo(ctx context.Context) (core.ApacheInfo, error)
 	// Fase 2c: config files (editor), modules (checklist), and
 	// structured fcgid settings, all through the ApacheManager gate.
 	ListConfigFiles() ([]core.ApacheConfigFile, error)

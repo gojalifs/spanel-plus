@@ -53,7 +53,7 @@ async function api(method, path, body) {
 
 // ---------- sidebar navigation ----------
 
-const views = ['overview', 'php', 'projects', 'project-form', 'processes', 'logs', 'apache-logs', 'tls', 'apache-config'];
+const views = ['overview', 'php', 'projects', 'project-form', 'processes', 'logs', 'apache-logs', 'tls', 'apache-config', 'about'];
 
 function showView(name) {
   for (const v of views) {
@@ -68,6 +68,7 @@ function showView(name) {
   if (name === 'logs') loadPanelLog();
   if (name === 'apache-logs') loadApacheLogs();
   if (name === 'apache-config') loadApacheConfig();
+  if (name === 'about') loadAbout();
 }
 
 // ---------- M5: login admin ----------
@@ -959,6 +960,71 @@ function collectProcesses() {
     });
   }
   return out;
+}
+
+// ---------- About ----------
+
+function aboutRows(tbody, rows) {
+  tbody.innerHTML = '';
+  for (const [label, value] of rows) {
+    const tr = el('tr');
+    tr.append(el('td', label), el('td', value));
+    tbody.appendChild(tr);
+  }
+}
+
+function formatUptime(seconds) {
+  if (seconds == null) return '—';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return h + ' jam ' + m + ' menit';
+  if (m > 0) return m + ' menit';
+  return seconds + ' detik';
+}
+
+async function loadAbout() {
+  try {
+    const data = await api('GET', '/api/v1/about');
+    const p = data.panel;
+    aboutRows($('about-panel-body'), [
+      ['Nama', p.name],
+      ['Versi panel', 'v' + p.version + ' (' + p.commit + ')'],
+      ['Dibangun dengan', p.go_version + ' / ' + p.os + ' ' + p.arch],
+      ['Port panel', String(p.port)],
+      ['Folder data', p.data_dir],
+      ['Uptime', formatUptime(p.uptime_seconds)],
+    ]);
+    const ap = data.apache;
+    aboutRows($('about-apache-body'), [
+      ['Versi Apache', ap.version ? 'Apache ' + ap.version : (ap.error || 'tidak diketahui')],
+      ['Folder Apache', ap.home || '—'],
+      ['Service Apache', ap.service || '—'],
+      ['Port situs', String(ap.port || 80)],
+      ['mod_fcgid', ap.mod_fcgid ? 'Terpasang' : 'Tidak ditemukan'],
+      ['Rotasi log (rotatelogs)', ap.rotatelogs ? 'Aktif — log dirotasi harian' : 'Tidak ada — log ditulis ke file tunggal'],
+    ]);
+    const tbody = $('about-php-body');
+    tbody.innerHTML = '';
+    if (!data.php_versions.length) {
+      const tr = el('tr');
+      const td = el('td', 'Belum ada versi PHP terdaftar.', 'muted');
+      td.colSpan = 2;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+    for (const v of data.php_versions) {
+      const tr = el('tr');
+      tr.append(el('td', phpLabel(v)), el('td', v.path, 'mono'));
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    $('about-panel-body').innerHTML = '';
+    const tr = el('tr');
+    const td = el('td', 'Gagal memuat info About: ' + e.message, 'muted');
+    td.colSpan = 2;
+    tr.appendChild(td);
+    $('about-panel-body').appendChild(tr);
+  }
 }
 
 // ---------- activity log ----------

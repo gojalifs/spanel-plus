@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gojalifs/spanel-plus/internal/app"
+	"github.com/gojalifs/spanel-plus/internal/buildinfo"
 	"github.com/gojalifs/spanel-plus/internal/core"
 )
 
@@ -41,6 +42,7 @@ func (a *api) register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/auth/status", a.authStatus)
 	mux.HandleFunc("POST /api/v1/auth/logout", a.authLogout)
 	mux.HandleFunc("GET /api/v1/overview", a.overview)
+	mux.HandleFunc("GET /api/v1/about", a.about)
 	mux.HandleFunc("GET /api/v1/logs", a.panelLog)
 	mux.HandleFunc("GET /api/v1/projects", a.listProjects)
 	mux.HandleFunc("POST /api/v1/projects", a.addProject)
@@ -230,6 +232,89 @@ func (a *api) overview(w http.ResponseWriter, _ *http.Request) {
 		"projects_active": active,
 		"php_versions":    len(reg.PHPVersions),
 	})
+}
+
+// aboutPanel is the panel's own identity for the About page.
+type aboutPanel struct {
+	Name          string `json:"name"`
+	Version       string `json:"version"`
+	Commit        string `json:"commit"`
+	GoVersion     string `json:"go_version"`
+	OS            string `json:"os"`
+	Arch          string `json:"arch"`
+	Port          int    `json:"port"`
+	DataDir       string `json:"data_dir"`
+	UptimeSeconds int64  `json:"uptime_seconds"`
+}
+
+// aboutApache is the main HTTP server for the About page. Version
+// "" with Error set means the probe failed — the page shows that
+// honestly instead of a stale or guessed number.
+type aboutApache struct {
+	Version    string `json:"version"`
+	Home       string `json:"home"`
+	Service    string `json:"service"`
+	Port       int    `json:"port"`
+	ModFcgid   bool   `json:"mod_fcgid"`
+	RotateLogs bool   `json:"rotatelogs"`
+	Error      string `json:"error,omitempty"`
+}
+
+type aboutResponse struct {
+	Panel  aboutPanel        `json:"panel"`
+	Apache aboutApache       `json:"apache"`
+	PHP    []core.PHPVersion `json:"php_versions"`
+}
+
+// about serves the About page: panel identity, the main Apache
+// server's patch version, and every registered PHP version (full
+// patch version when known). The Apache probe runs live on each
+// load, so the page never shows a version recorded at some earlier
+// install — what httpd -v says right now is what you get.
+func (a *api) about(w http.ResponseWriter, r *http.Request) {
+	projects, _, apache := a.services(w)
+	if projects == nil {
+		return
+	}
+	reg, err := projects.List()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	st := a.application.Status()
+	res := aboutResponse{
+		Panel: aboutPanel{
+			Name:          buildinfo.Name,
+			Version:       buildinfo.Version,
+			Commit:        buildinfo.Commit,
+			GoVersion:     buildinfo.GoVersion(),
+			OS:            buildinfo.GOOS(),
+			Arch:          buildinfo.GOARCH(),
+			Port:          st.PanelPort,
+			DataDir:       a.application.DataDir(),
+			UptimeSeconds: st.UptimeSeconds,
+		},
+		Apache: aboutApache{
+			Home:    st.ApacheHome,
+			Service: st.ApacheService,
+			Port:    st.ApachePort,
+		},
+		PHP: reg.PHPVersions,
+	}
+	if res.PHP == nil {
+		res.PHP = []core.PHPVersion{}
+	}
+	if apache != nil {
+		if info, err := apache.ApacheInfo(r.Context()); err != nil {
+			res.Apache.Error = err.Error()
+		} else {
+			res.Apache.Version = info.Version
+			res.Apache.Home = info.Home
+			res.Apache.ModFcgid = info.ModFcgid
+			res.Apache.RotateLogs = info.RotateLogs
+		}
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (a *api) listProjects(w http.ResponseWriter, _ *http.Request) {
