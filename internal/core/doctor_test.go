@@ -25,9 +25,13 @@ func (f fakeFiles) EnsureWritableDir(string) error {
 type fakeRunner struct {
 	out string
 	err error
+	// versionFrom, when set, answers httpd -v from the binary's own
+	// file content (the upgrade test writes the version INTO
+	// httpd.exe, so the probe follows the folder swap).
+	versionFrom func(cmd string) string
 }
 
-func (r fakeRunner) Run(_ context.Context, _ string, args ...string) (string, error) {
+func (r fakeRunner) Run(_ context.Context, cmd string, args ...string) (string, error) {
 	// httpd -t answers differently from httpd -v; the fake mirrors
 	// that so the M5 syntax check passes on a healthy fixture.
 	if len(args) > 0 && args[len(args)-1] == "-t" {
@@ -35,6 +39,9 @@ func (r fakeRunner) Run(_ context.Context, _ string, args ...string) (string, er
 			return r.out, r.err
 		}
 		return "Syntax OK\n", nil
+	}
+	if len(args) > 0 && args[len(args)-1] == "-v" && r.versionFrom != nil {
+		return "Server version: Apache/" + r.versionFrom(cmd) + " (Win64)\n", nil
 	}
 	return r.out, r.err
 }

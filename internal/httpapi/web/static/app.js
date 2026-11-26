@@ -612,6 +612,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('apache-log-date').addEventListener('change', loadApacheLogFile);
   $('btn-apache-log-reload').addEventListener('click', loadApacheLogs);
   $('fcgid-form').addEventListener('submit', saveFcgid);
+  $('apache-upgrade-form').addEventListener('submit', submitApacheUpgrade);
   $('apache-modules-save').addEventListener('click', saveApacheModules);
   $('apache-config-file').addEventListener('change', loadApacheConfigFile);
   $('apache-config-load').addEventListener('click', loadApacheConfigFile);
@@ -1024,6 +1025,31 @@ async function loadAbout() {
     td.colSpan = 2;
     tr.appendChild(td);
     $('about-panel-body').appendChild(tr);
+  }
+}
+
+async function submitApacheUpgrade(e) {
+  e.preventDefault();
+  const note = $('apache-upgrade-note');
+  const file = $('apache-upgrade-file').files[0];
+  if (!file) {
+    toast('Pilih dulu file bundle (.zip) hasil panel apache fetch.', false);
+    return;
+  }
+  note.textContent = 'Mengunggah & meng-upgrade… service Apache akan berhenti sebentar.';
+  const form = new FormData();
+  form.append('bundle', file);
+  try {
+    const resp = await fetch('/api/v1/apache/upgrade', {method: 'POST', body: form});
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || ('HTTP ' + resp.status));
+    note.textContent = 'Apache ' + data.old_version + ' → ' + data.new_version + '. Backup folder lama: ' + data.backup_path + '.';
+    toast('Apache ter-upgrade ' + data.old_version + ' → ' + data.new_version + '.');
+    for (const w of (data.warnings || [])) toast(w, false);
+    loadAbout();
+  } catch (err) {
+    note.textContent = '';
+    toast('Upgrade gagal: ' + err.message, false);
   }
 }
 

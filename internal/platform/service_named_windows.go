@@ -22,6 +22,16 @@ func NewNamedServiceController() core.ApacheServiceControl {
 }
 
 func (scmNamedController) Restart(name string) error {
+	if err := (scmNamedController{}).Stop(name); err != nil {
+		return err
+	}
+	return (scmNamedController{}).Start(name)
+}
+
+// Stop stops the service; an already-stopped service is not an
+// error (the upgrade stops Apache before swapping folders, and the
+// service may already be down for maintenance).
+func (scmNamedController) Stop(name string) error {
 	m, s, err := openServiceByName(name)
 	if err != nil {
 		return err
@@ -33,13 +43,31 @@ func (scmNamedController) Restart(name string) error {
 	if err != nil {
 		return fmt.Errorf("query service %s: %w", name, err)
 	}
-	if st.State != svc.Stopped {
-		if _, err := s.Control(svc.Stop); err != nil {
-			return fmt.Errorf("stop service %s: %w", name, err)
-		}
-		if err := waitState(s, svc.Stopped, 20*time.Second); err != nil {
-			return err
-		}
+	if st.State == svc.Stopped {
+		return nil
+	}
+	if _, err := s.Control(svc.Stop); err != nil {
+		return fmt.Errorf("stop service %s: %w", name, err)
+	}
+	return waitState(s, svc.Stopped, 20*time.Second)
+}
+
+// Start starts the service; an already-running service is not an
+// error.
+func (scmNamedController) Start(name string) error {
+	m, s, err := openServiceByName(name)
+	if err != nil {
+		return err
+	}
+	defer m.Disconnect()
+	defer s.Close()
+
+	st, err := s.Query()
+	if err != nil {
+		return fmt.Errorf("query service %s: %w", name, err)
+	}
+	if st.State == svc.Running {
+		return nil
 	}
 	if err := s.Start(); err != nil {
 		return fmt.Errorf("start service %s: %w", name, err)

@@ -352,6 +352,73 @@ Rollback config Apache = snapshot di
 `<data_dir>/backups/<yyyyMMdd-HHmmss>` (retensi 20 snapshot
 terbaru; snapshot diambil otomatis tiap apply).
 
+### Upgrade Apache (server offline, bundle dari PC dev)
+
+Server produksi tidak berinternet, jadi upgrade Apache dibagi dua
+tahap: PC dev yang berinternet menyiapkan bundle, server tinggal
+mengimpor.
+
+**Tahap 1 — di PC dev (berinternet):**
+
+```
+panel apache fetch [--version 2.4.71] [--out spanel-apache-bundle-2.4.71.zip]
+```
+
+Tanpa `--version` diambil yang terbaru dari halaman download
+Apache Lounge (saat fitur ini ditulis: 2.4.71, VS18). Perintah ini
+jalan sendiri — tidak butuh panel jalan atau login. Outputnya
+satu file bundle (manifest + zip Apache + zip mod_fcgid, ~15 MB)
+plus SHA-256 bundle yang dicetak di layar.
+
+**Tahap 2 — salin bundle ke server**, lalu impor dengan salah satu
+cara:
+
+- Dashboard: menu About → bagian Apache → "Upload & upgrade Apache".
+- CLI: `panel apache import --bundle <file>` (butuh panel jalan + login).
+
+**Yang dilakukan import, berurutan:**
+
+1. Verifikasi bundle: format manifest + SHA-256 kedua zip di
+   dalamnya + zip Apache benar berisi `bin/httpd.exe`. Bundle
+   rusak (mis. salinan USB terpotong) gagal di sini, sebelum ada
+   yang diubah.
+2. Tolak bundle yang versinya tidak lebih baru dari Apache yang
+   berjalan (upgrade hanya maju; downgrade tidak didukung —
+   kembali ke versi lama pakai folder backup, lihat bawah).
+3. Staging ke folder baru di sebelah folder Apache
+   (`<home>-<versi-baru>`): ekstrak zip Apache, pasang
+   `mod_fcgid.so` dari bundle, salin `httpd.conf`, `conf/extra`,
+   dan `htdocs` dari instalasi lama. Sisanya (mime.types, bin/,
+   …) diambil dari zip baru — itu gunanya upgrade.
+4. Stop service Apache, pindahkan folder lama ke backup
+   (`<home>-backup-<versi-lama>`, `-2`/`-3` bila sudah ada),
+   pindahkan folder staging ke tempatnya, `httpd -t`, start
+   service, verifikasi `httpd -v` melaporkan versi baru.
+5. Gagal di langkah mana pun sesudah penukaran → rollback
+   otomatis: folder gagal dibuang, backup dikembalikan, service
+   di-start lagi bila sebelumnya jalan.
+
+**Yang TIDAK berubah / TIDAK ikut:**
+
+- `apache_home` di `panel.json` tidak pernah ditulis ulang —
+  panel.exe tidak menulis panel.json, dan penukaran memakai path
+  yang sama, jadi panel tidak perlu di-restart dan tidak ada
+  config yang berubah.
+- Modul `.so` lama selain `mod_fcgid` tidak ikut ke Apache baru
+  (binary lama bisa tidak mau di-load versi baru) — dilaporkan
+  sebagai peringatan di hasil import; salin manual dari folder
+  backup bila masih dibutuhkan.
+- VC++ Redistributable harus cocok dengan build Apache baru
+  (VS18 saat ini) — periksa manual sebelum upgrade; panel tidak
+  bisa mendeteksinya.
+- Bila service Apache sedang berhenti saat import (maintenance),
+  import tidak menyalakannya lagi sesudah selesai.
+
+**Rollback manual:** bila hasil import ternyata bermasalah di
+kemudian hari, stop service Apache, ganti isi folder Apache
+dengan folder backup (`<home>-backup-<versi-lama>`), start
+service. Folder backup dipertahankan sampai dihapus manual.
+
 ### Backup
 
 Yang wajib dibackup berkala (di luar mesin bila mungkin):

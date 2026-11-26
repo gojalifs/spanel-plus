@@ -114,6 +114,11 @@ func (OSFileStore) Remove(path string) error {
 // RemoveAll deletes a file or directory tree.
 func (OSFileStore) RemoveAll(path string) error { return os.RemoveAll(path) }
 
+// Rename moves a file or directory tree. Across volumes os.Rename
+// fails (Windows: ERROR_NOT_SAME_DEVICE) — callers that need a
+// cross-volume move fall back to copy+remove.
+func (OSFileStore) Rename(oldPath, newPath string) error { return os.Rename(oldPath, newPath) }
+
 // ListNames returns entry names inside dir; a missing dir reads empty.
 func (OSFileStore) ListNames(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -104,6 +105,9 @@ type APIClient interface {
 	ApacheStatus() (string, error)
 	ApacheTest() error
 	ApacheRestart() error
+	// UploadApacheBundle imports an offline bundle file (built by
+	// `panel apache fetch`) on the running panel.
+	UploadApacheBundle(bundlePath string) (core.ApacheUpgradeResult, error)
 	ProcessStatuses() ([]core.ProcessStatus, error)
 	ProcessStart(project, name string) error
 	ProcessStop(project, name string) error
@@ -173,22 +177,9 @@ func (t errTransport) RoundTrip(_ *http.Request) (*http.Response, error) {
 	return nil, t.err
 }
 
-func (c *httpAPIClient) request(method, path string, body any) (int, []byte, http.Header, error) {
-	var rdr io.Reader
-	if body != nil {
-		raw, err := json.Marshal(body)
-		if err != nil {
-			return 0, nil, nil, err
-		}
-		rdr = bytes.NewReader(raw)
-	}
-	req, err := http.NewRequest(method, c.base+path, rdr)
-	if err != nil {
-		return 0, nil, nil, err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
+// do sends a prepared request (auth cookie + error mapping shared
+// by the JSON calls and the multipart bundle upload).
+func (c *httpAPIClient) do(req *http.Request) (int, []byte, http.Header, error) {
 	if token, err := c.tokens.Load(); err == nil && token != "" {
 		req.AddCookie(&http.Cookie{Name: core.SessionCookieName, Value: token})
 	}
@@ -212,6 +203,25 @@ func (c *httpAPIClient) request(method, path string, body any) (int, []byte, htt
 		return resp.StatusCode, data, resp.Header, &APIError{Status: resp.StatusCode, Message: msg.Error}
 	}
 	return resp.StatusCode, data, resp.Header, nil
+}
+
+func (c *httpAPIClient) request(method, path string, body any) (int, []byte, http.Header, error) {
+	var rdr io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+		rdr = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequest(method, c.base+path, rdr)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return c.do(req)
 }
 
 func (c *httpAPIClient) call(method, path string, body any, out any) error {
@@ -338,6 +348,42 @@ func (c *httpAPIClient) ApacheTest() error {
 
 func (c *httpAPIClient) ApacheRestart() error {
 	return c.call(http.MethodPost, "/api/v1/apache/restart", nil, nil)
+}
+
+// UploadApacheBundle uploads a bundle file (built by `panel apache
+// fetch`) to the running panel for import.
+func (c *httpAPIClient) UploadApacheBundle(bundlePath string) (core.ApacheUpgradeResult, error) {
+	var res core.ApacheUpgradeResult
+	f, err := os.Open(bundlePath)
+	if err != nil {
+		return res, fmt.Errorf("bundle tidak bisa dibuka (%s): %w", bundlePath, err)
+	}
+	defer f.Close()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("bundle", filepath.Base(bundlePath))
+	if err != nil {
+		return res, err
+	}
+	if _, err := io.Copy(fw, f); err != nil {
+		return res, err
+	}
+	if err := mw.Close(); err != nil {
+		return res, err
+	}
+	req, err := http.NewRequest(http.MethodPost, c.base+"/api/v1/apache/upgrade", &body)
+	if err != nil {
+		return res, err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	_, data, _, err := c.do(req)
+	if err != nil {
+		return res, err
+	}
+	if err := json.Unmarshal(data, &res); err != nil {
+		return res, fmt.Errorf("panel menjawab JSON yang tidak dikenali: %w", err)
+	}
+	return res, nil
 }
 
 func (c *httpAPIClient) ProcessStatuses() ([]core.ProcessStatus, error) {

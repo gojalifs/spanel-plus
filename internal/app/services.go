@@ -45,6 +45,10 @@ type ApacheOps interface {
 	// ApacheInfo probes the installed Apache (httpd -v) for the
 	// About page: patch version, home, mod_fcgid/rotatelogs presence.
 	ApacheInfo(ctx context.Context) (core.ApacheInfo, error)
+	// ImportBundle upgrades the managed Apache from an offline
+	// bundle file (built by `panel apache fetch` on a dev PC).
+	// bundlePath is read through the manager's FileStore.
+	ImportBundle(ctx context.Context, bundlePath string) (core.ApacheUpgradeResult, error)
 	// Fase 2c: config files (editor), modules (checklist), and
 	// structured fcgid settings, all through the ApacheManager gate.
 	ListConfigFiles() ([]core.ApacheConfigFile, error)

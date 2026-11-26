@@ -95,6 +95,35 @@ func (f *memFS) MkdirAll(dir string) error {
 	}
 }
 func (f *memFS) Remove(p string) error { delete(f.files, normPath(p)); return nil }
+func (f *memFS) Rename(oldPath, newPath string) error {
+	oldPath, newPath = normPath(oldPath), normPath(newPath)
+	if oldPath == newPath {
+		return nil
+	}
+	if data, ok := f.files[oldPath]; ok {
+		f.files[newPath] = data
+		delete(f.files, oldPath)
+	}
+	if f.dirs[oldPath] {
+		f.dirs[newPath] = true
+		delete(f.dirs, oldPath)
+	}
+	oldPrefix, newPrefix := oldPath+"/", newPath+"/"
+	for k, v := range f.files {
+		if strings.HasPrefix(k, oldPrefix) {
+			f.files[newPrefix+strings.TrimPrefix(k, oldPrefix)] = v
+			delete(f.files, k)
+		}
+	}
+	for k := range f.dirs {
+		if strings.HasPrefix(k, oldPrefix) {
+			f.dirs[newPrefix+strings.TrimPrefix(k, oldPrefix)] = true
+			delete(f.dirs, k)
+		}
+	}
+	return nil
+}
+
 func (f *memFS) RemoveAll(p string) error {
 	p = normPath(p)
 	delete(f.files, p)
@@ -163,7 +192,10 @@ func TestMemFSSeparatorTolerance(t *testing.T) {
 
 type fakeServiceCtl struct {
 	restarts  int
-	failFirst int // number of initial Restart calls that fail
+	stops     int
+	starts    int
+	status    string // "" = "running"
+	failFirst int    // number of initial Restart calls that fail
 }
 
 func (f *fakeServiceCtl) Restart(string) error {
@@ -173,7 +205,22 @@ func (f *fakeServiceCtl) Restart(string) error {
 	}
 	return nil
 }
-func (f *fakeServiceCtl) Status(string) (string, error) { return "running", nil }
+func (f *fakeServiceCtl) Stop(string) error {
+	f.stops++
+	f.status = "stopped"
+	return nil
+}
+func (f *fakeServiceCtl) Start(string) error {
+	f.starts++
+	f.status = "running"
+	return nil
+}
+func (f *fakeServiceCtl) Status(string) (string, error) {
+	if f.status == "" {
+		return "running", nil
+	}
+	return f.status, nil
+}
 
 type tickClock struct{ t time.Time }
 

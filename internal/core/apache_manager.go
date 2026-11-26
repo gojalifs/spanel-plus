@@ -11,9 +11,18 @@ import (
 )
 
 // ApacheServiceControl restarts and reports a Windows service by
-// name — the managed Apache, in this package.
+// name — the managed Apache, in this package. Stop/Start exist
+// separately from Restart because the Apache upgrade swaps folders
+// while the service is stopped (stop, swap, test, start) — a single
+// Restart cannot express that.
 type ApacheServiceControl interface {
 	Restart(name string) error
+	// Stop stops the service; stopping an already-stopped service
+	// is not an error.
+	Stop(name string) error
+	// Start starts the service; starting an already-running service
+	// is not an error.
+	Start(name string) error
 	Status(name string) (string, error)
 }
 

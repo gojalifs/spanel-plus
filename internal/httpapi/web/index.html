@@ -292,6 +292,13 @@
               <tbody id="about-apache-body"><tr><td colspan="2" class="muted">Memuat…</td></tr></tbody>
             </table>
             <p class="muted">Versi dibaca live dari <code>httpd -v</code> setiap kali halaman ini dibuka. Versi mod_fcgid tidak ditampilkan karena tidak bisa dibaca dari binary-nya (<code>httpd -M</code> hanya menyebut nama modul) — yang dilaporkan hanya status terpasang.</p>
+            <h3>Upgrade Apache (offline)</h3>
+            <p class="muted">Server ini tidak berinternet: buat dulu bundle di PC dev dengan <code>panel apache fetch</code> (otomatis download Apache + mod_fcgid terbaru dari Apache Lounge jadi satu file), salin file bundle ke server, lalu upload di sini. Panel memverifikasi hash bundle, menolak versi yang tidak lebih baru, men-staging ke folder baru, lalu menukar folder saat service berhenti (folder lama dipertahankan sebagai backup). Upgrade yang gagal di tengah jalan di-rollback otomatis.</p>
+            <form id="apache-upgrade-form" class="inline-form">
+              <label>File bundle <input id="apache-upgrade-file" type="file" accept=".zip"></label>
+              <button type="submit">Upload &amp; upgrade Apache</button>
+            </form>
+            <p class="muted" id="apache-upgrade-note"></p>
           </section>
           <section class="card">
             <h2>Versi PHP</h2>

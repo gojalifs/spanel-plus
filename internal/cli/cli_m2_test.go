@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"archive/zip"
+	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -325,13 +329,112 @@ func (m *cliMemStore) WriteFile(p string, data []byte) error {
 	return nil
 }
 func (m *cliMemStore) WriteFileAtomic(p string, data []byte) error { return m.WriteFile(p, data) }
-func (m *cliMemStore) MkdirAll(string) error                       { return nil }
-func (m *cliMemStore) Remove(p string) error                       { delete(m.files, p); return nil }
-func (m *cliMemStore) RemoveAll(p string) error                    { delete(m.files, p); return nil }
-func (m *cliMemStore) ListNames(string) ([]string, error)          { return nil, nil }
+func (m *cliMemStore) Rename(oldPath, newPath string) error {
+	if b, ok := m.files[oldPath]; ok {
+		m.files[newPath] = b
+		delete(m.files, oldPath)
+	}
+	return nil
+}
+func (m *cliMemStore) MkdirAll(string) error              { return nil }
+func (m *cliMemStore) Remove(p string) error              { delete(m.files, p); return nil }
+func (m *cliMemStore) RemoveAll(p string) error           { delete(m.files, p); return nil }
+func (m *cliMemStore) ListNames(string) ([]string, error) { return nil, nil }
 
 type cliFileMissingError struct{}
 
 func (cliFileMissingError) Error() string { return "not found" }
 
 var errCLIFileMissing = cliFileMissingError{}
+
+// --- Apache offline upgrade (Opsi A) ---
+
+// fakeLoungeCLI is a minimal Apache Lounge stand-in for `apache
+// fetch`: a download page plus the two zips.
+func fakeLoungeCLI(t *testing.T) *httptest.Server {
+	t.Helper()
+	mkzip := func(files map[string]string) []byte {
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+		for name, content := range files {
+			w, err := zw.Create(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := w.Write([]byte(content)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return buf.Bytes()
+	}
+	apacheZip := mkzip(map[string]string{"Apache24/bin/httpd.exe": "2.4.71"})
+	fcgidZip := mkzip(map[string]string{"mod_fcgid.so": "so-bytes"})
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/download/":
+			_, _ = w.Write([]byte(`<a href="VS18/binaries/httpd-2.4.71-261112-Win64-VS18.zip">httpd-2.4.71-261112-Win64-VS18.zip</a>`))
+		case strings.HasSuffix(r.URL.Path, "httpd-2.4.71-261112-Win64-VS18.zip"):
+			_, _ = w.Write(apacheZip)
+		case strings.HasSuffix(r.URL.Path, "mod_fcgid-2.3.10-win64-VS18.zip"):
+			_, _ = w.Write(fcgidZip)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestApacheFetchWritesBundle(t *testing.T) {
+	srv := fakeLoungeCLI(t)
+	defer srv.Close()
+	deps, out, _ := testDeps()
+	deps.ApacheFetchBaseURL = srv.URL + "/download/"
+	outPath := filepath.Join(t.TempDir(), "bundle.zip")
+	if code := New(deps).Run([]string{"apache", "fetch", "--out", outPath}); code != 0 {
+		t.Fatalf("apache fetch exit = %d", code)
+	}
+	if !strings.Contains(out.String(), "2.4.71") || !strings.Contains(out.String(), "SHA-256 bundle:") {
+		t.Errorf("fetch must print the version and the bundle hash, got: %q", out.String())
+	}
+	raw, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, f := range zr.File {
+		names[f.Name] = true
+	}
+	for _, want := range []string{"manifest.json", "apache.zip", "mod_fcgid.zip"} {
+		if !names[want] {
+			t.Errorf("bundle must contain %s, got %v", want, names)
+		}
+	}
+}
+
+func TestApacheImportViaAPI(t *testing.T) {
+	stub := &stubPanel{status: http.StatusOK,
+		body: `{"old_version":"2.4.69","new_version":"2.4.71","backup_path":"C:\\m0\\Apache24-backup-2.4.69","warnings":["modul lama mod_custom.so tidak ikut"]}`}
+	deps, srv, _ := apiTestDeps(t, stub)
+	defer srv.Close()
+	bundlePath := filepath.Join(t.TempDir(), "bundle.zip")
+	if err := os.WriteFile(bundlePath, []byte("bundle-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deps2, out, _ := testDeps()
+	deps2.NewAPI = deps.NewAPI
+	if code := New(deps2).Run([]string{"apache", "import", "--bundle", bundlePath}); code != 0 {
+		t.Fatalf("apache import exit = %d", code)
+	}
+	if stub.lastPath != "/api/v1/apache/upgrade" || stub.lastMethod != http.MethodPost {
+		t.Errorf("import must POST /api/v1/apache/upgrade, got %s %s", stub.lastMethod, stub.lastPath)
+	}
+	if !strings.Contains(out.String(), "2.4.69 -> 2.4.71") || !strings.Contains(out.String(), "mod_custom.so") {
+		t.Errorf("import must print versions and warnings, got: %q", out.String())
+	}
+}

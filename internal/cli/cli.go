@@ -6,11 +6,15 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -57,6 +61,10 @@ type Deps struct {
 	// Stdin is where passwords are read from (os.Stdin in
 	// production; a buffer in tests).
 	Stdin io.Reader
+	// ApacheFetchBaseURL overrides the Apache Lounge download index
+	// for `apache fetch` (tests point it at a local server; empty
+	// means the real download page).
+	ApacheFetchBaseURL string
 }
 
 // ProjectOps is the CLI's view of the registry, used only by
@@ -119,6 +127,13 @@ Commands:
   apache test           Jalankan httpd -t pada config aktif
   apache status         Status service Apache yang dikelola
   apache restart        Restart service Apache yang dikelola
+  apache fetch [--version V] [--out F]
+                        Download Apache + mod_fcgid terbaru dari Apache Lounge
+                        dan kemas jadi SATU file bundle offline (jalan di PC dev
+                        yang berinternet; TIDAK butuh panel jalan / login)
+  apache import --bundle F
+                        Upgrade Apache server dari file bundle (jalan di server
+                        offline; butuh panel jalan + login)
   version               Tampilkan versi panel
   help                  Tampilkan bantuan ini
 
@@ -127,6 +142,9 @@ jalan lewat HTTP API (port di panel.json) dan butuh sesi login.
 Bila panel tidak jalan, mereka gagal keras dengan petunjuk
 menyalakannya dulu — bukan jalan pintas lokal, supaya CLI dan UI
 tidak pernah beraksi atas state yang berbeda.
+Pengecualian: "apache fetch" jalan sendiri tanpa panel (itu gunanya:
+di PC dev yang berinternet); "apache import" tetap butuh panel
+jalan + login karena upgrade dieksekusi server.
 Konfigurasi: file panel.json di folder yang sama dengan panel.exe
 (port, data_dir, log_dir, apache_home, apache_service).
 `
@@ -631,9 +649,15 @@ func (c *CLI) runPHP(args []string) int {
 }
 
 func (c *CLI) runApache(args []string) int {
-	if len(args) != 1 {
-		fmt.Fprintln(c.deps.ErrOut, "usage: panel apache test|status|restart")
+	if len(args) == 0 {
+		fmt.Fprintln(c.deps.ErrOut, "usage: panel apache test|status|restart|fetch|import ...")
 		return 2
+	}
+	// fetch runs standalone on the internet-connected dev PC: no
+	// panel, no login, no config — that is the whole point of the
+	// offline-bundle workflow.
+	if args[0] == "fetch" {
+		return c.runApacheFetch(args[1:])
 	}
 	client, code := c.apiClient()
 	if code != 0 {
@@ -659,10 +683,62 @@ func (c *CLI) runApache(args []string) int {
 		}
 		fmt.Fprintln(c.deps.Out, "Apache service direstart.")
 		return 0
+	case "import":
+		_, flags, err := parseFlags(args[1:])
+		if err != nil {
+			fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+			return 2
+		}
+		if flags["bundle"] == "" {
+			fmt.Fprintln(c.deps.ErrOut, "usage: panel apache import --bundle <file-bundle.zip>")
+			return 2
+		}
+		res, err := client.UploadApacheBundle(flags["bundle"])
+		if err != nil {
+			return c.apiErr(err)
+		}
+		fmt.Fprintf(c.deps.Out, "Apache ter-upgrade %s -> %s. Backup folder lama: %s\n", res.OldVersion, res.NewVersion, res.BackupPath)
+		for _, w := range res.Warnings {
+			fmt.Fprintf(c.deps.Out, "PERINGATAN: %s\n", w)
+		}
+		return 0
 	default:
 		fmt.Fprintf(c.deps.ErrOut, "subcommand apache tidak dikenal: %q\n", args[0])
 		return 2
 	}
+}
+
+// runApacheFetch downloads the newest (or --version) Apache +
+// matching mod_fcgid from Apache Lounge and packs them into one
+// offline bundle file. It prints the bundle path and its SHA-256:
+// after copying the file to the offline server, compare the hash
+// there — a mismatch means the copy is corrupt, re-copy it.
+func (c *CLI) runApacheFetch(args []string) int {
+	_, flags, err := parseFlags(args)
+	if err != nil {
+		fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+		return 2
+	}
+	fetcher := &core.ApacheFetcher{BaseURL: c.deps.ApacheFetchBaseURL}
+	outPath := flags["out"]
+	var buf bytes.Buffer
+	hash := sha256.New()
+	manifest, err := fetcher.FetchBundle(context.Background(), flags["version"], io.MultiWriter(&buf, hash))
+	if err != nil {
+		fmt.Fprintf(c.deps.ErrOut, "ERROR: %v\n", err)
+		return 1
+	}
+	if outPath == "" {
+		outPath = fmt.Sprintf("spanel-apache-bundle-%s.zip", manifest.ApacheVersion)
+	}
+	if err := os.WriteFile(outPath, buf.Bytes(), 0o644); err != nil {
+		fmt.Fprintf(c.deps.ErrOut, "ERROR: tidak bisa menulis %s: %v\n", outPath, err)
+		return 1
+	}
+	fmt.Fprintf(c.deps.Out, "Bundle Apache %s (mod_fcgid %s) ditulis ke %s\n", manifest.ApacheVersion, manifest.FcgidVersion, outPath)
+	fmt.Fprintf(c.deps.Out, "SHA-256 bundle: %s\n", hex.EncodeToString(hash.Sum(nil)))
+	fmt.Fprintln(c.deps.Out, "Langkah berikut: salin file ini ke server, lalu di server jalankan 'panel apache import --bundle <file>' atau upload lewat menu About.")
+	return 0
 }
 
 // parseFlags parses `--key value` pairs plus the boolean `--disabled`.

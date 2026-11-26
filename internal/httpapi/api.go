@@ -3,8 +3,11 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gojalifs/spanel-plus/internal/app"
@@ -43,6 +46,7 @@ func (a *api) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/auth/logout", a.authLogout)
 	mux.HandleFunc("GET /api/v1/overview", a.overview)
 	mux.HandleFunc("GET /api/v1/about", a.about)
+	mux.HandleFunc("POST /api/v1/apache/upgrade", a.apacheUpgrade)
 	mux.HandleFunc("GET /api/v1/logs", a.panelLog)
 	mux.HandleFunc("GET /api/v1/projects", a.listProjects)
 	mux.HandleFunc("POST /api/v1/projects", a.addProject)
@@ -313,6 +317,52 @@ func (a *api) about(w http.ResponseWriter, r *http.Request) {
 			res.Apache.ModFcgid = info.ModFcgid
 			res.Apache.RotateLogs = info.RotateLogs
 		}
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// apacheUpgrade imports an offline Apache bundle (multipart field
+// "bundle", built by `panel apache fetch` on a dev PC). The upload
+// is capped at 64 MB (a bundle is ~15 MB) and saved to a temp file
+// the manager reads through its FileStore; the temp file is removed
+// afterwards whether the import succeeded or not — the operator's
+// copy on the dev PC remains the original.
+func (a *api) apacheUpgrade(w http.ResponseWriter, r *http.Request) {
+	_, _, apache := a.services(w)
+	if apache == nil {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		writeErr(w, fmt.Errorf("gagal membaca upload bundle: %w", err))
+		return
+	}
+	file, _, err := r.FormFile("bundle")
+	if err != nil {
+		writeErr(w, fmt.Errorf("field \"bundle\" tidak ada di upload: %w", err))
+		return
+	}
+	defer file.Close()
+	tmp, err := os.CreateTemp("", "spanel-apache-bundle-*.zip")
+	if err != nil {
+		writeErr(w, fmt.Errorf("tidak bisa menyimpan bundle sementara: %w", err))
+		return
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := io.Copy(tmp, file); err != nil {
+		_ = tmp.Close()
+		writeErr(w, fmt.Errorf("gagal menyimpan bundle: %w", err))
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		writeErr(w, fmt.Errorf("gagal menyimpan bundle: %w", err))
+		return
+	}
+	res, err := apache.ImportBundle(r.Context(), tmpPath)
+	if err != nil {
+		writeErr(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, res)
 }

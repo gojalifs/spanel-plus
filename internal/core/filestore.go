@@ -20,6 +20,11 @@ type FileStore interface {
 	Remove(path string) error
 	// RemoveAll deletes a file or directory tree (missing is fine).
 	RemoveAll(path string) error
+	// Rename moves a file or directory tree. On Windows it fails
+	// across volumes (different drive letters) — the caller falls
+	// back to copy+remove then. Used by the Apache upgrade to swap
+	// a staged folder into place without copying ~15 MB of binaries.
+	Rename(oldPath, newPath string) error
 	// ListNames returns the entry names inside dir (empty when the
 	// directory does not exist).
 	ListNames(dir string) ([]string, error)

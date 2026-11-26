@@ -19,6 +19,14 @@ func (namedServiceControllerStub) Restart(string) error {
 	return ErrServiceUnsupported
 }
 
+func (namedServiceControllerStub) Stop(string) error {
+	return ErrServiceUnsupported
+}
+
+func (namedServiceControllerStub) Start(string) error {
+	return ErrServiceUnsupported
+}
+
 func (namedServiceControllerStub) Status(string) (string, error) {
 	return "", ErrServiceUnsupported
 }

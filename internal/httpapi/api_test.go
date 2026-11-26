@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -90,6 +92,9 @@ func (f *fakeApache) Restart() error                   { f.restarted = true; ret
 func (f *fakeApache) TestConfig(context.Context) error { return nil }
 func (f *fakeApache) ApacheInfo(context.Context) (core.ApacheInfo, error) {
 	return core.ApacheInfo{Version: "2.4.69", Home: `C:\apache`, ModFcgid: true, RotateLogs: true}, nil
+}
+func (f *fakeApache) ImportBundle(context.Context, string) (core.ApacheUpgradeResult, error) {
+	return core.ApacheUpgradeResult{OldVersion: "2.4.69", NewVersion: "2.4.71", BackupPath: `C:\apache-backup-2.4.69`}, nil
 }
 func (f *fakeApache) ListConfigFiles() ([]core.ApacheConfigFile, error) {
 	return []core.ApacheConfigFile{{Name: "httpd.conf", Generated: false, Durable: true}}, nil
@@ -224,6 +229,34 @@ func TestAboutEndpoint(t *testing.T) {
 	}
 }
 
+func TestApacheUpgradeEndpoint(t *testing.T) {
+	h, _ := apiHandler(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("bundle", "apache-bundle-2.4.71.zip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fw.Write([]byte("fake-bundle-bytes")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/apache/upgrade", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apache upgrade = %d %s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"old_version":"2.4.69"`, `"new_version":"2.4.71"`, `"backup_path":`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("upgrade body must contain %s, got %s", want, rec.Body.String())
+		}
+	}
+}
+
 func TestPHPAndApacheEndpoints(t *testing.T) {
 	h, _ := apiHandler(t)
 	rec := call(t, h, http.MethodPost, "/api/v1/php", `{"path":"C:/php/8.3"}`)
@@ -302,10 +335,17 @@ func (m *mapFiles) ReadFile(p string) ([]byte, error) {
 }
 func (m *mapFiles) WriteFile(p string, b []byte) error       { m.data[p] = b; return nil }
 func (m *mapFiles) WriteFileAtomic(p string, b []byte) error { m.data[p] = b; return nil }
-func (m *mapFiles) MkdirAll(string) error                    { return nil }
-func (m *mapFiles) Remove(p string) error                    { delete(m.data, p); return nil }
-func (m *mapFiles) RemoveAll(string) error                   { return nil }
-func (m *mapFiles) ListNames(string) ([]string, error)       { return nil, nil }
+func (m *mapFiles) Rename(oldPath, newPath string) error {
+	if b, ok := m.data[oldPath]; ok {
+		m.data[newPath] = b
+		delete(m.data, oldPath)
+	}
+	return nil
+}
+func (m *mapFiles) MkdirAll(string) error              { return nil }
+func (m *mapFiles) Remove(p string) error              { delete(m.data, p); return nil }
+func (m *mapFiles) RemoveAll(string) error             { return nil }
+func (m *mapFiles) ListNames(string) ([]string, error) { return nil, nil }
 
 func TestProcessEndpoints(t *testing.T) {
 	h, _ := apiHandler(t)

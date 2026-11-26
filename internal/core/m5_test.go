@@ -116,10 +116,17 @@ func (m *m5MemStore) WriteFile(p string, data []byte) error {
 	return nil
 }
 func (m *m5MemStore) WriteFileAtomic(p string, data []byte) error { return m.WriteFile(p, data) }
-func (m *m5MemStore) MkdirAll(string) error                       { return nil }
-func (m *m5MemStore) Remove(p string) error                       { delete(m.files, p); return nil }
-func (m *m5MemStore) RemoveAll(p string) error                    { delete(m.files, p); return nil }
-func (m *m5MemStore) ListNames(string) ([]string, error)          { return nil, nil }
+func (m *m5MemStore) Rename(oldPath, newPath string) error {
+	if b, ok := m.files[oldPath]; ok {
+		m.files[newPath] = b
+		delete(m.files, oldPath)
+	}
+	return nil
+}
+func (m *m5MemStore) MkdirAll(string) error              { return nil }
+func (m *m5MemStore) Remove(p string) error              { delete(m.files, p); return nil }
+func (m *m5MemStore) RemoveAll(p string) error           { delete(m.files, p); return nil }
+func (m *m5MemStore) ListNames(string) ([]string, error) { return nil, nil }
 
 type notFoundError struct{}
 
