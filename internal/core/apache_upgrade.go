@@ -142,6 +142,16 @@ func extractZipToStore(files FileStore, zr *zip.Reader, prefix, dest string) err
 			continue
 		}
 		rel := strings.TrimPrefix(f.Name, prefix)
+		// The prefix's own directory entry ("Apache24/" when the
+		// prefix is "Apache24/") strips to an empty relative path:
+		// it is the root of the tree being extracted, not an
+		// unsafe entry. Skipping it here (before the safety check)
+		// is what the old code did implicitly by testing IsDir
+		// first — proven 2026-11-27 (issue #5): without this, the
+		// real Apache zip is rejected as "entri zip tidak aman".
+		if rel == "" {
+			continue
+		}
 		clean := filepath.ToSlash(filepath.Clean(rel))
 		if clean == "." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") {
 			return fmt.Errorf("entri zip tidak aman: %q", f.Name)

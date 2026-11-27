@@ -18,9 +18,18 @@ import (
 // so the fake runner's -v probe follows the swap) + inner fcgid zip.
 func makeUpgradeBundle(t *testing.T, version string, tamper bool) []byte {
 	t.Helper()
-	mkzip := func(files map[string]string) []byte {
+	mkzip := func(files map[string]string, dirs []string) []byte {
 		var buf bytes.Buffer
 		zw := zip.NewWriter(&buf)
+		// Directory entries first, mirroring the real Apache zip:
+		// it carries the prefix's own entry ("Apache24/") and the
+		// empty logs/ entry. Both must survive extraction (issue
+		// #5, 2026-11-27).
+		for _, d := range dirs {
+			if _, err := zw.Create(d); err != nil {
+				t.Fatal(err)
+			}
+		}
 		for name, content := range files {
 			w, err := zw.Create(name)
 			if err != nil {
@@ -39,8 +48,8 @@ func makeUpgradeBundle(t *testing.T, version string, tamper bool) []byte {
 		"Apache24/bin/httpd.exe":                 version,
 		"Apache24/conf/mime.types":               "text/html html",
 		"Apache24/conf/extra/httpd-default.conf": "# new default",
-	})
-	fcgidZip := mkzip(map[string]string{"mod_fcgid.so": "so-bytes"})
+	}, []string{"Apache24/", "Apache24/logs/"})
+	fcgidZip := mkzip(map[string]string{"mod_fcgid.so": "so-bytes"}, nil)
 	manifest := ApacheBundleManifest{
 		FormatVersion:  ApacheBundleFormat,
 		ApacheVersion:  version,
@@ -189,6 +198,12 @@ func TestExtractZipToStoreCreatesEmptyDirs(t *testing.T) {
 	fs := newMemFS()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
+	// The real Apache zip carries the prefix's own directory entry
+	// ("Apache24/") plus the empty logs/ entry — both must be
+	// accepted, not rejected as unsafe (issue #5, 2026-11-27).
+	if _, err := zw.Create("Apache24/"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := zw.Create("Apache24/logs/"); err != nil {
 		t.Fatal(err)
 	}
