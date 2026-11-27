@@ -111,8 +111,17 @@ func activityMiddleware(application *app.Application, logger *slog.Logger, next 
 		}
 		start := time.Now()
 		var params any
+		// The params peek reads the body ONLY when its length is
+		// known and small (<= 32 KB): reading a prefix and handing
+		// the handler the prefix SILENTLY TRUNCATES the request.
+		// Proven 2026-11-27 (issue #5): a ~14 MB multipart bundle
+		// upload reached the handler as its first 32 KB and failed
+		// with "unexpected EOF". Multipart uploads, bodies over
+		// 32 KB and chunked/unknown-length bodies are never peeked
+		// at — their params stay unlogged rather than corrupt.
 		if r.Body != nil && (r.Method == http.MethodPost || r.Method == http.MethodPut ||
-			r.Method == http.MethodPatch || r.Method == http.MethodDelete) {
+			r.Method == http.MethodPatch || r.Method == http.MethodDelete) &&
+			r.ContentLength >= 0 && r.ContentLength <= 32*1024 {
 			raw, _ := io.ReadAll(io.LimitReader(r.Body, 32*1024))
 			r.Body = io.NopCloser(bytes.NewReader(raw))
 			if len(raw) > 0 {

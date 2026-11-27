@@ -257,6 +257,35 @@ func TestApacheUpgradeEndpoint(t *testing.T) {
 	}
 }
 
+// Regression test for issue #5: the activity middleware used to
+// peek at the first 32 KB of every POST body and hand the handler
+// that prefix, so a bundle bigger than 32 KB arrived truncated and
+// ParseMultipartForm failed with "unexpected EOF". A 64 KB file
+// part through the full handler stack must reach ImportBundle
+// intact (HTTP 200).
+func TestApacheUpgradeEndpointLargeBundle(t *testing.T) {
+	h, _ := apiHandler(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("bundle", "apache-bundle-2.4.71.zip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fw.Write(bytes.Repeat([]byte("x"), 64*1024)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/apache/upgrade", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apache upgrade (64 KB bundle) = %d %s — body must survive the activity middleware", rec.Code, rec.Body.String())
+	}
+}
+
 func TestPHPAndApacheEndpoints(t *testing.T) {
 	h, _ := apiHandler(t)
 	rec := call(t, h, http.MethodPost, "/api/v1/php", `{"path":"C:/php/8.3"}`)
