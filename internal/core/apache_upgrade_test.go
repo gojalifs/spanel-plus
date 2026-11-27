@@ -171,6 +171,51 @@ func TestApacheManagerImportBundle(t *testing.T) {
 	if rig.fs.Exists(home + "-2.4.71") {
 		t.Error("staging folder must not remain after a successful import")
 	}
+	// httpd.conf references logs/ relatively (logs/access_log) and
+	// httpd -t requires the directory to exist (issue #5: the real
+	// Apache zip ships logs/ as an EMPTY directory entry, so the
+	// home folder must have it even though no log file is carried
+	// over — old logs stay in the backup folder).
+	if !rig.fs.IsDir(filepath.Join(home, "logs")) {
+		t.Error("home must have a logs/ directory after import")
+	}
+}
+
+// Regression test for issue #5: the Apache zip ships logs/ as an
+// empty directory entry. Extraction must create it — skipping
+// directory entries (the old behaviour) left staging without
+// logs/ and httpd -t failed with AH02297.
+func TestExtractZipToStoreCreatesEmptyDirs(t *testing.T) {
+	fs := newMemFS()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	if _, err := zw.Create("Apache24/logs/"); err != nil {
+		t.Fatal(err)
+	}
+	w, err := zw.Create("Apache24/bin/httpd.exe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("2.4.71")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := `C:\staging`
+	if err := extractZipToStore(fs, zr, "Apache24/", dest); err != nil {
+		t.Fatal(err)
+	}
+	if !fs.IsDir(filepath.Join(dest, "logs")) {
+		t.Error("extraction must create the logs/ directory entry")
+	}
+	if got, err := fs.ReadFile(filepath.Join(dest, "bin", "httpd.exe")); err != nil || string(got) != "2.4.71" {
+		t.Errorf("httpd.exe = %q, %v", got, err)
+	}
 }
 
 func TestApacheManagerImportBundleRefusals(t *testing.T) {

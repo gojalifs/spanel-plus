@@ -129,15 +129,15 @@ func readZipEntry(f *zip.File) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(rc, 256<<20))
 }
 
-// extractZipToStore extracts every file under prefix from zr into
+// extractZipToStore extracts every entry under prefix from zr into
 // dest (prefix stripped), through the FileStore so the whole import
-// is testable in memory. Zip-slip entries ("../", absolute paths)
-// are rejected.
+// is testable in memory. Directory entries are created, not
+// skipped: the Apache zip ships logs/ as an EMPTY directory entry,
+// and httpd -t fails (AH02297) when that directory does not exist
+// — proven 2026-11-27 (issue #5). Zip-slip entries ("../",
+// absolute paths) are rejected.
 func extractZipToStore(files FileStore, zr *zip.Reader, prefix, dest string) error {
 	for _, f := range zr.File {
-		if f.FileInfo().IsDir() {
-			continue
-		}
 		if prefix != "" && !strings.HasPrefix(f.Name, prefix) {
 			continue
 		}
@@ -145,6 +145,12 @@ func extractZipToStore(files FileStore, zr *zip.Reader, prefix, dest string) err
 		clean := filepath.ToSlash(filepath.Clean(rel))
 		if clean == "." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") {
 			return fmt.Errorf("entri zip tidak aman: %q", f.Name)
+		}
+		if f.FileInfo().IsDir() {
+			if err := files.MkdirAll(joinPath(dest, filepath.FromSlash(clean))); err != nil {
+				return fmt.Errorf("buat direktori %s: %w", clean, err)
+			}
+			continue
 		}
 		data, err := readZipEntry(f)
 		if err != nil {
@@ -308,6 +314,16 @@ func (m *ApacheManager) ImportBundle(ctx context.Context, bundlePath string) (Ap
 	if err := extractZipToStore(m.Files, azr, prefix, staging); err != nil {
 		_ = m.Files.RemoveAll(staging)
 		return ApacheUpgradeResult{}, fmt.Errorf("ekstrak Apache %s gagal: %w", manifest.ApacheVersion, err)
+	}
+	// httpd.conf references log files relatively (logs/access_log,
+	// logs/error.log), and Apache requires the directory to exist
+	// for httpd -t — even when the zip ships logs/ as an empty
+	// directory entry (see extractZipToStore), make sure it is
+	// there. The directory starts EMPTY on purpose: old log files
+	// stay in the backup folder, they are not carried over.
+	if err := m.Files.MkdirAll(joinPath(staging, "logs")); err != nil {
+		_ = m.Files.RemoveAll(staging)
+		return ApacheUpgradeResult{}, fmt.Errorf("buat direktori logs di staging: %w", err)
 	}
 	if err := m.Files.WriteFile(joinPath(staging, filepath.Join("modules", "mod_fcgid.so")), soBytes); err != nil {
 		_ = m.Files.RemoveAll(staging)
